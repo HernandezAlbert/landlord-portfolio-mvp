@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/google-form-sync",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/daily",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/weekly",
+      "schedule": "0 8 * * 1"
+    }
+  ]
+}

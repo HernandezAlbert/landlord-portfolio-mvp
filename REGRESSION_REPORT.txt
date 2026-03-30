@@ -1,0 +1,38 @@
+Landlord Portfolio MVP - Applicant workflow update
+Date: 2026-03-29
+Base used: landlord-portfolio-mvp-updated-v5-regenerated.zip
+
+Changes applied
+- Added editable final decision workflow on applicant detail page.
+- Added editable workflow status on applicant detail page.
+- Added statuses:
+  - REJECTED -> Applicant rejected
+  - MORE_INFO_REQUESTED -> Applicant requested for more info / guarantor
+- Added applicant notes editing on applicant detail page.
+- Added applicant archive / restore actions.
+- Added archive list on applicants page.
+- Added permanent delete for archived applicants only.
+- Preserved sticky manual statuses during recalculation and document-sync refresh:
+  - WITHDRAWN
+  - REJECTED
+  - MORE_INFO_REQUESTED
+- Updated applicant email templates so:
+  - request guarantor -> MORE_INFO_REQUESTED
+  - rejection emails -> REJECTED
+- Kept previously-added imported Google Form raw field display, excluding raw pet fields and summarising pets separately.
+
+Files updated
+- prisma/schema.prisma
+- lib/applicants.ts
+- lib/applicant-recalculation.ts
+- lib/applicant-referencing-sync.ts
+- lib/applicant-messaging.ts
+- app/(app)/applicants/page.tsx
+- app/(app)/applicants/[id]/page.tsx
+- app/(app)/automation/page.tsx
+- lib/digest.ts
+
+Validation notes
+- I verified the requested workflow changes were added consistently across the detail page, applicants list, recalculation logic, and archive flow.
+- I could not honestly claim a full clean Next.js/TypeScript build in this container because the project dependencies are not installed here and the uploaded project has broader existing dependency/type-resolution issues.
+- A Prisma migration / client regenerate will be needed because ApplicantStatus enum values were extended.

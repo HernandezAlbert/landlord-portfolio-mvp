@@ -1,0 +1,473 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Property {
+  id                                String           @id @default(cuid())
+  name                              String
+  address1                          String
+  address2                          String?
+  city                              String
+  postcode                          String
+  notes                             String?
+  googleFormImportEnabled           Boolean          @default(false)
+  googleSheetId                     String?
+  googleSheetTabName                String?
+  googleLastImportedRow             Int?
+  googleLastCheckedAt               DateTime?
+  googleLastImportedAt              DateTime?
+  googleSyncError                   String?
+  screeningPassMultiplier           Float            @default(3.0)
+  screeningGuarantorMinMultiplier   Float            @default(2.0)
+  advertisedRentMonthly            Int?
+  createdAt                         DateTime         @default(now())
+  updatedAt                         DateTime         @updatedAt
+  deletedAt                         DateTime?
+  applicants                        Applicant[]
+  compliance                        ComplianceItem[]
+  expenses                          Expense[]
+  inspections                       Inspection[]
+  insurancePolicy                   InsurancePolicy?
+  mortgage                          MortgageDetail?
+  tenancies                         Tenancy[]
+  reportSchedules                   ReportSchedule[]
+  reportRuns                        ReportRun[]
+
+  @@index([deletedAt])
+  @@index([googleFormImportEnabled])
+}
+
+model Tenant {
+  id          String          @id @default(cuid())
+  fullName    String
+  email       String?
+  phone       String?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+  contactLogs ContactLog[]
+  tenancies   TenancyTenant[]
+
+  @@index([deletedAt])
+}
+
+model Tenancy {
+  id                      String          @id @default(cuid())
+  propertyId              String
+  startDate               DateTime
+  endDate                 DateTime?
+  rentMonthly             Int
+  rentDueDay              Int
+  isActive                Boolean         @default(true)
+  notes                   String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  deletedAt               DateTime?
+  autoGenerateRent        Boolean         @default(true)
+  lastRentGeneratedOn     DateTime?
+  rentGenerateMonthsAhead Int             @default(3)
+  contactLogs             ContactLog[]
+  expenses                Expense[]
+  notices                 Notice[]
+  payments                Payment[]
+  property                Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenants                 TenancyTenant[]
+
+  @@index([propertyId])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model TenancyTenant {
+  tenancyId String
+  tenantId  String
+  role      String?
+  createdAt DateTime @default(now())
+  tenancy   Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenancyId, tenantId])
+}
+
+model Payment {
+  id         String    @id @default(cuid())
+  tenancyId  String
+  dueDate    DateTime
+  amountDue  Int
+  amountPaid Int       @default(0)
+  paidDate   DateTime?
+  method     String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  tenancy    Tenancy   @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  @@index([tenancyId, dueDate])
+  @@index([paidDate])
+  @@index([deletedAt])
+}
+
+model ComplianceItem {
+  id         String         @id @default(cuid())
+  propertyId String
+  type       ComplianceType
+  lastDone   DateTime?
+  expiresOn  DateTime?
+  notes      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  deletedAt  DateTime?
+  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, type])
+  @@index([expiresOn])
+  @@index([deletedAt])
+}
+
+model Inspection {
+  id         String    @id @default(cuid())
+  propertyId String
+  lastDate   DateTime?
+  nextDue    DateTime?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([nextDue])
+  @@index([deletedAt])
+}
+
+model Notice {
+  id         String       @id @default(cuid())
+  tenancyId  String
+  type       NoticeType
+  dateServed DateTime
+  method     NoticeMethod
+  notes      String?
+  createdAt  DateTime     @default(now())
+  deletedAt  DateTime?
+  tenancy    Tenancy      @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  @@index([tenancyId, dateServed])
+  @@index([deletedAt])
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  html      String?
+  text      String?
+  status    String
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model DocumentStorageSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReminderConfig {
+  id            String   @id @default(cuid())
+  enabled       Boolean  @default(true)
+  dailyEnabled  Boolean  @default(true)
+  weeklyEnabled Boolean  @default(true)
+  dailyTimeUtc  String   @default("08:00")
+  weeklyDay     Int      @default(1)
+  weeklyTimeUtc String   @default("08:00")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model MortgageDetail {
+  id                String    @id @default(cuid())
+  propertyId        String    @unique
+  lender            String?
+  mortgageNumber    String?
+  productName       String?
+  productType       String?
+  interestRate      Float?
+  monthlyPayment    Int?
+  productStartDate  DateTime?
+  productEndDate    DateTime?
+  mortgageTermStart DateTime?
+  mortgageTermEnd   DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+  property          Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([productEndDate])
+  @@index([deletedAt])
+}
+
+model InsurancePolicy {
+  id             String    @id @default(cuid())
+  propertyId     String    @unique
+  provider       String?
+  policyNumber   String?
+  coverType      String?
+  annualPremium  Int?
+  monthlyPremium Int?
+  startDate      DateTime?
+  endDate        DateTime?
+  renewalDate    DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+  property       Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([renewalDate])
+  @@index([deletedAt])
+}
+
+model Expense {
+  id                String          @id @default(cuid())
+  propertyId        String
+  tenancyId         String?
+  date              DateTime
+  amount            Int
+  category          ExpenseCategory
+  vendor            String?
+  reference         String?
+  notes             String?
+  receiptPath         String?
+  receiptStoragePath  String?
+  receiptOriginalName String?
+  createdAt         DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  deletedAt  DateTime?
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancy    Tenancy?        @relation(fields: [tenancyId], references: [id])
+
+  @@index([propertyId, date])
+  @@index([tenancyId])
+  @@index([deletedAt])
+}
+
+model ContactLog {
+  id           String      @id @default(cuid())
+  tenancyId    String?
+  tenantId     String?
+  type         ContactType
+  date         DateTime
+  subject      String?
+  notes        String
+  nextFollowUp DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  tenancy      Tenancy?    @relation(fields: [tenancyId], references: [id])
+  tenant       Tenant?     @relation(fields: [tenantId], references: [id])
+
+  @@index([tenancyId, date])
+  @@index([tenantId, date])
+  @@index([nextFollowUp])
+  @@index([deletedAt])
+}
+
+model Applicant {
+  id                  String            @id @default(cuid())
+  fullName            String
+  email               String?
+  phone               String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  adults              Int               @default(1)
+  children            Int               @default(0)
+  deletedAt           DateTime?
+  employmentStatus    String?
+  hasPets             Boolean           @default(false)
+  monthlyIncome       Int?
+  notes               String?
+  petDetails          String?
+  propertyId          String?
+  requestedMoveIn     DateTime?
+  savingsBufferMonths Int?
+  status              ApplicantStatus   @default(APPLIED)
+  importExternalKey   String?           @unique
+  importRawPayload    Json?
+  importSource        String?
+  importSubmittedAt   DateTime?
+  screeningReason     String?
+  screeningStatus     String?
+  screeningSummary    String?
+  screeningScore      Int?
+  canProvideGuarantor Boolean?
+  property            Property?         @relation(fields: [propertyId], references: [id])
+  referencing         ReferencingCheck?
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([screeningStatus])
+}
+
+model ReferencingCheck {
+  id                     String    @id @default(cuid())
+  applicantId            String    @unique
+  idProvided             Boolean   @default(false)
+  rightToRentChecked     Boolean   @default(false)
+  payslipsProvided       Boolean   @default(false)
+  bankStatementsProvided Boolean   @default(false)
+  employmentReference    Boolean   @default(false)
+  landlordReference      Boolean   @default(false)
+  creditCheckPassed      Boolean?
+  incomeVerified         Boolean   @default(false)
+  guarantorRequired      Boolean   @default(false)
+  guarantorProvided      Boolean   @default(false)
+  petInsuranceProvided   Boolean   @default(false)
+  score                  Int?
+  decision               String?
+  manualDecision         String?
+  manualDecisionReason   String?
+  risks                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  applicant              Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+}
+
+model ActionOverride {
+  id           String    @id @default(cuid())
+  key          String    @unique
+  note         String?
+  snoozedUntil DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+enum ComplianceType {
+  GAS
+  EICR
+  EPC
+}
+
+enum NoticeType {
+  SECTION_8
+  SECTION_21
+  RENT_INCREASE
+  OTHER
+}
+
+enum NoticeMethod {
+  EMAIL
+  POST
+  HAND_DELIVERED
+  OTHER
+}
+
+enum ContactType {
+  CALL
+  EMAIL
+  SMS
+  VISIT
+  NOTE
+}
+
+enum ApplicantStatus {
+  APPLIED
+  REFERENCING
+  APPROVED
+  DECLINED
+  REJECTED
+  MORE_INFO_REQUESTED
+  WITHDRAWN
+}
+
+enum ExpenseCategory {
+  REPAIRS
+  MAINTENANCE
+  INSURANCE
+  UTILITIES
+  MORTGAGE_INTEREST
+  SERVICE_CHARGE
+  MANAGEMENT
+  FEES
+  OTHER
+}
+
+model ReportSchedule {
+  id              String    @id @default(cuid())
+  type            ReportType
+  propertyId      String?
+  property        Property? @relation(fields: [propertyId], references: [id])
+
+  isActive        Boolean   @default(true)
+  autoGenerate    Boolean   @default(true)
+  reminderEnabled Boolean   @default(true)
+
+  daysBeforeDue   Int       @default(7)
+  reminderDays    String    @default("14,7,3,1")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model ReportRun {
+  id           String         @id @default(cuid())
+  type         ReportType
+  propertyId   String?
+  property     Property?      @relation(fields: [propertyId], references: [id])
+
+  periodStart  DateTime
+  periodEnd    DateTime
+  dueDate      DateTime
+
+  status       ReportStatus   @default(DRAFT)
+
+  generatedBy  String
+  generatedAt  DateTime       @default(now())
+  finalisedAt  DateTime?
+
+  snapshots    ReportSnapshot[]
+}
+
+model ReportSnapshot {
+  id           String     @id @default(cuid())
+  reportRunId  String
+  reportRun    ReportRun  @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
+
+  summaryJson  Json
+  rowsJson     Json
+  warningsJson Json
+
+  createdAt    DateTime   @default(now())
+}
+
+enum ReportType {
+  ANNUAL
+  QUARTERLY
+}
+
+enum ReportStatus {
+  DRAFT
+  NEEDS_REVIEW
+  READY
+  EXPORTED
+}
