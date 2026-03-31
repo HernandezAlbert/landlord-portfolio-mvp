@@ -97,7 +97,11 @@ export default async function PropertyPage({
     if (result.skippedReason) {
       redirect(`/properties/${id}?googleError=${encodeURIComponent(result.skippedReason)}`);
     }
-    redirect(`/properties/${id}?googleSync=${encodeURIComponent(`Imported ${result.imported} new applicant(s). Updated ${result.updated} existing applicant(s).`)}`);
+    redirect(
+      `/properties/${id}?googleSync=${encodeURIComponent(
+        `Sync complete. Imported ${result.imported} new applicant(s). Updated ${result.updated} existing applicant(s).`,
+      )}`,
+    );
   }
 
   const activeTenancies = property.tenancies.filter((t) => t.isActive);
@@ -106,10 +110,33 @@ export default async function PropertyPage({
 
   const thisMonthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
   const nextMonthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
-  const dueThisMonth = activeTenancies.reduce((sum, tenancy) => sum + tenancy.payments.filter((payment) => payment.deletedAt === null && payment.dueDate >= thisMonthStart && payment.dueDate < nextMonthStart).reduce((s, payment) => s + payment.amountDue, 0), 0);
-  const receivedThisMonth = property.tenancies.reduce((sum, tenancy) => sum + tenancy.payments.filter((payment) => payment.deletedAt === null && payment.paidDate && payment.paidDate >= thisMonthStart && payment.paidDate < nextMonthStart).reduce((s, payment) => s + payment.amountPaid, 0), 0);
-  const arrears = activeTenancies.reduce((sum, tenancy) => sum + tenancy.payments.filter((payment) => payment.deletedAt === null && payment.dueDate <= new Date()).reduce((s, payment) => s + Math.max(0, payment.amountDue - payment.amountPaid), 0), 0);
-  const monthExpenses = property.expenses.filter((expense) => expense.date >= thisMonthStart && expense.date < nextMonthStart).reduce((sum, expense) => sum + expense.amount, 0);
+  const dueThisMonth = activeTenancies.reduce(
+    (sum, tenancy) =>
+      sum +
+      tenancy.payments
+        .filter((payment) => payment.deletedAt === null && payment.dueDate >= thisMonthStart && payment.dueDate < nextMonthStart)
+        .reduce((s, payment) => s + payment.amountDue, 0),
+    0,
+  );
+  const receivedThisMonth = property.tenancies.reduce(
+    (sum, tenancy) =>
+      sum +
+      tenancy.payments
+        .filter((payment) => payment.deletedAt === null && payment.paidDate && payment.paidDate >= thisMonthStart && payment.paidDate < nextMonthStart)
+        .reduce((s, payment) => s + payment.amountPaid, 0),
+    0,
+  );
+  const arrears = activeTenancies.reduce(
+    (sum, tenancy) =>
+      sum +
+      tenancy.payments
+        .filter((payment) => payment.deletedAt === null && payment.dueDate <= new Date())
+        .reduce((s, payment) => s + Math.max(0, payment.amountDue - payment.amountPaid), 0),
+    0,
+  );
+  const monthExpenses = property.expenses
+    .filter((expense) => expense.date >= thisMonthStart && expense.date < nextMonthStart)
+    .reduce((sum, expense) => sum + expense.amount, 0);
   const mortgageMonthly = property.mortgage?.monthlyPayment ?? 0;
   const netThisMonth = receivedThisMonth - monthExpenses - mortgageMonthly;
   const hasActiveTenancy = activeTenancies.length > 0;
@@ -185,14 +212,18 @@ export default async function PropertyPage({
             </p>
           </div>
           <form action={runApplicantSyncNow}>
-            <button type="submit" className="btn btn-secondary btn-sm">Run import now</button>
+            <button type="submit" className="btn btn-secondary btn-sm">Sync now</button>
           </form>
         </div>
 
         <form action={saveGoogleImportSettings} className="grid gap-4 lg:grid-cols-2">
           <label className="grid gap-1 text-sm lg:col-span-2">
             <span className="font-medium text-slate-800">Enable automatic Google Form import</span>
-            <select name="googleFormImportEnabled" defaultValue={property.googleFormImportEnabled ? "true" : "false"} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
+            <select
+              name="googleFormImportEnabled"
+              defaultValue={property.googleFormImportEnabled ? "true" : "false"}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            >
               <option value="false">Off</option>
               <option value="true">On</option>
             </select>
@@ -200,37 +231,72 @@ export default async function PropertyPage({
 
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-800">Google Sheet ID or URL</span>
-            <input name="googleSheetId" defaultValue={property.googleSheetId ?? ""} placeholder="Spreadsheet ID or full Google Sheet URL" className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm" />
+            <input
+              name="googleSheetId"
+              defaultValue={property.googleSheetId ?? ""}
+              placeholder="Spreadsheet ID or full Google Sheet URL"
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
             <span className="text-xs text-slate-500">Share the response sheet with your Google service account email before turning this on.</span>
           </label>
 
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-800">Sheet tab name</span>
-            <input name="googleSheetTabName" defaultValue={property.googleSheetTabName ?? "Form Responses 1"} placeholder="Form Responses 1" className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm" />
+            <input
+              name="googleSheetTabName"
+              defaultValue={property.googleSheetTabName ?? "Form Responses 1"}
+              placeholder="Form Responses 1"
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
             <span className="text-xs text-slate-500">Usually <code>Form Responses 1</code>.</span>
           </label>
 
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-800">Target / advertised monthly rent (£)</span>
-            <input name="advertisedRentMonthly" type="number" min="0" step="0.01" defaultValue={property.advertisedRentMonthly ? (property.advertisedRentMonthly / 100).toFixed(2) : ""} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm" />
+            <input
+              name="advertisedRentMonthly"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={property.advertisedRentMonthly ? (property.advertisedRentMonthly / 100).toFixed(2) : ""}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
             <span className="text-xs text-slate-500">Used for applicant screening before a tenancy exists. If blank, the app falls back to an active tenancy rent when available.</span>
           </label>
 
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-800">Pass affordability multiplier</span>
-            <input name="screeningPassMultiplier" type="number" min="1" step="0.1" defaultValue={property.screeningPassMultiplier} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm" />
+            <input
+              name="screeningPassMultiplier"
+              type="number"
+              min="1"
+              step="0.1"
+              defaultValue={property.screeningPassMultiplier}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
             <span className="text-xs text-slate-500">Applicants at or above this multiple of monthly rent are screened green.</span>
           </label>
 
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-800">Guarantor review floor</span>
-            <input name="screeningGuarantorMinMultiplier" type="number" min="1" step="0.1" defaultValue={property.screeningGuarantorMinMultiplier} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm" />
+            <input
+              name="screeningGuarantorMinMultiplier"
+              type="number"
+              min="1"
+              step="0.1"
+              defaultValue={property.screeningGuarantorMinMultiplier}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
             <span className="text-xs text-slate-500">Applicants between this floor and the pass multiplier can be amber if they can provide a guarantor.</span>
           </label>
 
           <label className="grid gap-1 text-sm lg:col-span-2">
             <span className="font-medium text-slate-800">Reset imported row pointer</span>
-            <select name="resetLastRow" defaultValue="false" className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
+            <select
+              name="resetLastRow"
+              defaultValue="false"
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm"
+            >
               <option value="false">No</option>
               <option value="true">Yes — re-check from the top next time</option>
             </select>
@@ -241,7 +307,7 @@ export default async function PropertyPage({
           </div>
         </form>
 
-        <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <div className="text-slate-500">Target / advertised rent</div>
             <div className="font-medium mt-1">{property.advertisedRentMonthly ? formatMoney(property.advertisedRentMonthly) : "Not set"}</div>
@@ -259,6 +325,10 @@ export default async function PropertyPage({
             <div className="font-medium mt-1">{fmtDateTime(property.googleLastCheckedAt)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="text-slate-500">Last synced</div>
+            <div className="font-medium mt-1">{fmtDateTime(property.googleLastImportedAt)}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <div className="text-slate-500">Last imported row</div>
             <div className="font-medium mt-1">{property.googleLastImportedRow ?? "—"}</div>
           </div>
@@ -267,9 +337,11 @@ export default async function PropertyPage({
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-2">
           <div><strong>Sheet:</strong> {property.googleSheetId ?? "Not set"}</div>
           <div><strong>Tab:</strong> {property.googleSheetTabName ?? "Not set"}</div>
-          <div><strong>Last applicant imported:</strong> {fmtDateTime(property.googleLastImportedAt)}</div>
+          <div><strong>Last synced:</strong> {fmtDateTime(property.googleLastImportedAt)}</div>
           <div><strong>Latest sync error:</strong> {property.googleSyncError ?? "None"}</div>
-          <div className="text-xs text-slate-500">Vercel cron route: <code>/api/cron/google-form-sync</code>. Set <code>CRON_SECRET</code>, <code>EMAIL_TO</code>, and <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in your deployment environment.</div>
+          <div className="text-xs text-slate-500">
+            Vercel cron route: <code>/api/cron/google-form-sync</code>. Set <code>CRON_SECRET</code>, <code>EMAIL_TO</code>, and <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in your deployment environment.
+          </div>
         </div>
       </section>
 
