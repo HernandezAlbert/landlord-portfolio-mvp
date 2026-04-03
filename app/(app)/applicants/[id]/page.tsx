@@ -24,6 +24,7 @@ import { allApplicantMessageDrafts } from "@/lib/applicant-messaging";
 import MessageTemplatesPanel from "./MessageTemplatesPanel";
 import GuarantorSummaryCard from "@/components/guarantors/guarantor-summary-card";
 import { getDecisionWithGuarantor } from "@/lib/guarantor-decision";
+import ToastBridge from "@/components/ui/toast-bridge";
 
 async function getRent(propertyId?: string | null, advertisedRent?: number | null) {
   if (advertisedRent && advertisedRent > 0) return advertisedRent;
@@ -103,7 +104,11 @@ export default async function ApplicantDetailPage({
   const uploadStatus = typeof qs.upload === "string" ? qs.upload : "";
   const deleteDocStatus = typeof qs.deleteDoc === "string" ? qs.deleteDoc : "";
   const savedStatus = typeof qs.saved === "string" ? qs.saved : "";
-
+  const toastCode = typeof qs.toast === "string" ? qs.toast : "";
+  const toastMessage =
+    toastCode === "guarantor-deleted"
+      ? "Guarantor deleted."
+      : null;
   const applicant = await prisma.applicant.findUnique({
   where: { id },
   include: {
@@ -219,6 +224,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
 
   return (
     <div className="space-y-6">
+      <ToastBridge message={toastMessage} variant="success" />
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -301,7 +307,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
           No document was selected for deletion.
         </div>
       ) : null}
-
+      
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Affordability</h2>

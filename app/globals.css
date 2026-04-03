@@ -26,9 +26,9 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-body.app-pending,
-body.app-pending * {
-  cursor: progress !important;
+/* Keep the app interactive while pending, but avoid sticky global wait cursors */
+body.app-pending {
+  pointer-events: auto;
 }
 
 .card,
@@ -152,7 +152,6 @@ summary::-webkit-details-marker {
   display: none;
 }
 
-
 .btn-success {
   background: var(--success);
   color: white;
@@ -215,4 +214,109 @@ summary::-webkit-details-marker {
 
 .details-chip:hover {
   background: #b7c7da;
+}
+
+/* Global progress indicator */
+.app-progress {
+  pointer-events: none;
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 1000;
+  width: 100%;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.app-progress-visible {
+  opacity: 1;
+}
+
+.app-progress-bar {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, #2563eb 0%, #60a5fa 35%, #2563eb 70%, #60a5fa 100%);
+  background-size: 200% 100%;
+  animation: app-progress-slide 1s linear infinite;
+  box-shadow: 0 1px 6px rgba(37, 99, 235, 0.35);
+}
+
+.app-progress-chip {
+  position: fixed;
+  top: 0.85rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: white;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.22);
+}
+
+.app-spinner {
+  display: inline-block;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: white;
+  animation: app-spin 0.8s linear infinite;
+}
+
+/* Global toasts */
+.app-toast-stack {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1001;
+  display: flex;
+  max-width: min(24rem, calc(100vw - 2rem));
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-toast {
+  border-radius: 0.9rem;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+}
+
+.app-toast-success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.app-toast-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.app-toast-info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes app-progress-slide {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
 }
