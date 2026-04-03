@@ -17,36 +17,36 @@ model User {
 }
 
 model Property {
-  id                                String           @id @default(cuid())
-  name                              String
-  address1                          String
-  address2                          String?
-  city                              String
-  postcode                          String
-  notes                             String?
-  googleFormImportEnabled           Boolean          @default(false)
-  googleSheetId                     String?
-  googleSheetTabName                String?
-  googleLastImportedRow             Int?
-  googleLastCheckedAt               DateTime?
-  googleLastImportedAt              DateTime?
-  googleSyncError                   String?
-  screeningPassMultiplier           Float            @default(3.0)
-  screeningGuarantorMinMultiplier   Float            @default(2.0)
-  advertisedRentMonthly            Int?
-  createdAt                         DateTime         @default(now())
-  updatedAt                         DateTime         @updatedAt
-  deletedAt                         DateTime?
-  applicants                        Applicant[]
-  compliance                        ComplianceItem[]
-  expenses                          Expense[]
-  inspections                       Inspection[]
-  insurancePolicy                   InsurancePolicy?
-  mortgage                          MortgageDetail?
-  tenancies                         Tenancy[]
-  reportSchedules                   ReportSchedule[]
-  reportRuns                        ReportRun[]
-
+  id                              String           @id @default(cuid())
+  name                            String
+  address1                        String
+  address2                        String?
+  city                            String
+  postcode                        String
+  notes                           String?
+  googleFormImportEnabled         Boolean          @default(false)
+  googleSheetId                   String?
+  googleSheetTabName              String?
+  googleLastImportedRow           Int?
+  googleLastCheckedAt             DateTime?
+  googleLastImportedAt            DateTime?
+  googleSyncError                 String?
+  screeningPassMultiplier         Float            @default(3.0)
+  screeningGuarantorMinMultiplier Float            @default(2.0)
+  advertisedRentMonthly           Int?
+  createdAt                       DateTime         @default(now())
+  updatedAt                       DateTime         @updatedAt
+  deletedAt                       DateTime?
+  applicants                      Applicant[]
+  compliance                      ComplianceItem[]
+  expenses                        Expense[]
+  inspections                     Inspection[]
+  insurancePolicy                 InsurancePolicy?
+  mortgage                        MortgageDetail?
+  tenancies                       Tenancy[]
+  reportSchedules                 ReportSchedule[]
+  reportRuns                      ReportRun[]
+  
   @@index([deletedAt])
   @@index([googleFormImportEnabled])
 }
@@ -248,23 +248,23 @@ model InsurancePolicy {
 }
 
 model Expense {
-  id                String          @id @default(cuid())
-  propertyId        String
-  tenancyId         String?
-  date              DateTime
-  amount            Int
-  category          ExpenseCategory
-  vendor            String?
-  reference         String?
-  notes             String?
+  id                  String          @id @default(cuid())
+  propertyId          String
+  tenancyId           String?
+  date                DateTime
+  amount              Int
+  category            ExpenseCategory
+  vendor              String?
+  reference           String?
+  notes               String?
   receiptPath         String?
   receiptStoragePath  String?
   receiptOriginalName String?
-  createdAt         DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  deletedAt  DateTime?
-  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  tenancy    Tenancy?        @relation(fields: [tenancyId], references: [id])
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  deletedAt           DateTime?
+  property            Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancy             Tenancy?        @relation(fields: [tenancyId], references: [id])
 
   @@index([propertyId, date])
   @@index([tenancyId])
@@ -293,25 +293,25 @@ model ContactLog {
 }
 
 model Applicant {
-  id                  String            @id @default(cuid())
+  id                  String                     @id @default(cuid())
   fullName            String
   email               String?
   phone               String?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  adults              Int               @default(1)
-  children            Int               @default(0)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  adults              Int                        @default(1)
+  children            Int                        @default(0)
   deletedAt           DateTime?
   employmentStatus    String?
-  hasPets             Boolean           @default(false)
+  hasPets             Boolean                    @default(false)
   monthlyIncome       Int?
   notes               String?
   petDetails          String?
   propertyId          String?
   requestedMoveIn     DateTime?
   savingsBufferMonths Int?
-  status              ApplicantStatus   @default(APPLIED)
-  importExternalKey   String?           @unique
+  status              ApplicantStatus            @default(APPLIED)
+  importExternalKey   String?                    @unique
   importRawPayload    Json?
   importSource        String?
   importSubmittedAt   DateTime?
@@ -320,8 +320,13 @@ model Applicant {
   screeningSummary    String?
   screeningScore      Int?
   canProvideGuarantor Boolean?
-  property            Property?         @relation(fields: [propertyId], references: [id])
+  property            Property?                  @relation(fields: [propertyId], references: [id])
   referencing         ReferencingCheck?
+  guarantorRequired   Boolean                    @default(false)
+  guarantorAvailable  Boolean?
+  guarantorOutcome    GuarantorAssessmentStatus?
+  guarantorNotes      String?
+  guarantors          Guarantor[]
 
   @@index([propertyId])
   @@index([status])
@@ -413,51 +418,79 @@ enum ExpenseCategory {
 }
 
 model ReportSchedule {
-  id              String    @id @default(cuid())
-  type            ReportType
-  propertyId      String?
-  property        Property? @relation(fields: [propertyId], references: [id])
+  id         String     @id @default(cuid())
+  type       ReportType
+  propertyId String?
+  property   Property?  @relation(fields: [propertyId], references: [id])
 
-  isActive        Boolean   @default(true)
-  autoGenerate    Boolean   @default(true)
-  reminderEnabled Boolean   @default(true)
+  isActive        Boolean @default(true)
+  autoGenerate    Boolean @default(true)
+  reminderEnabled Boolean @default(true)
 
-  daysBeforeDue   Int       @default(7)
-  reminderDays    String    @default("14,7,3,1")
+  daysBeforeDue Int    @default(7)
+  reminderDays  String @default("14,7,3,1")
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ReportRun {
-  id           String         @id @default(cuid())
-  type         ReportType
-  propertyId   String?
-  property     Property?      @relation(fields: [propertyId], references: [id])
+  id         String     @id @default(cuid())
+  type       ReportType
+  propertyId String?
+  property   Property?  @relation(fields: [propertyId], references: [id])
 
-  periodStart  DateTime
-  periodEnd    DateTime
-  dueDate      DateTime
+  periodStart DateTime
+  periodEnd   DateTime
+  dueDate     DateTime
 
-  status       ReportStatus   @default(DRAFT)
+  status ReportStatus @default(DRAFT)
 
-  generatedBy  String
-  generatedAt  DateTime       @default(now())
-  finalisedAt  DateTime?
+  generatedBy String
+  generatedAt DateTime  @default(now())
+  finalisedAt DateTime?
 
-  snapshots    ReportSnapshot[]
+  snapshots ReportSnapshot[]
 }
 
 model ReportSnapshot {
-  id           String     @id @default(cuid())
-  reportRunId  String
-  reportRun    ReportRun  @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  reportRunId String
+  reportRun   ReportRun @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
 
   summaryJson  Json
   rowsJson     Json
   warningsJson Json
 
-  createdAt    DateTime   @default(now())
+  createdAt DateTime @default(now())
+}
+
+model Guarantor {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firstName String
+  lastName  String
+  fullName  String?
+
+  email               String?
+  phone               String?
+  annualIncomePence   Int?
+
+  deedSigned         Boolean  @default(false)
+  deedSignedAt       DateTime?
+  assessmentScore    Int?
+  assessmentSummary  String?
+
+  assessmentStatus GuarantorAssessmentStatus @default(PENDING)
+  archivedAt       DateTime?
+
+  applicantId String?
+  applicant   Applicant? @relation(fields: [applicantId], references: [id], onDelete: SetNull)
+
+  @@index([applicantId])
+  @@index([archivedAt])
 }
 
 enum ReportType {
@@ -470,4 +503,35 @@ enum ReportStatus {
   NEEDS_REVIEW
   READY
   EXPORTED
+}
+
+enum CheckStatus {
+  PENDING
+  PASSED
+  FAILED
+  NOT_REQUIRED
+}
+
+enum GuarantorAssessmentStatus {
+  PENDING
+  PASSED
+  CONDITIONAL
+  FAILED
+  WITHDRAWN
+}
+
+enum GuaranteeScope {
+  RENT_ONLY
+  RENT_AND_DAMAGE
+  ALL_TENANCY_OBLIGATIONS
+}
+
+enum GuarantorDocumentType {
+  ID
+  PROOF_OF_ADDRESS
+  INCOME_PROOF
+  BANK_STATEMENT
+  CREDIT_REPORT
+  SIGNED_GUARANTEE
+  OTHER
 }

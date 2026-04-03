@@ -22,6 +22,8 @@ import {
 import { getIncomeBreakdownFromRawPayload } from "@/lib/google-form-import";
 import { allApplicantMessageDrafts } from "@/lib/applicant-messaging";
 import MessageTemplatesPanel from "./MessageTemplatesPanel";
+import GuarantorSummaryCard from "@/components/guarantors/guarantor-summary-card";
+import { getDecisionWithGuarantor } from "@/lib/guarantor-decision";
 
 async function getRent(propertyId?: string | null, advertisedRent?: number | null) {
   if (advertisedRent && advertisedRent > 0) return advertisedRent;
@@ -103,22 +105,33 @@ export default async function ApplicantDetailPage({
   const savedStatus = typeof qs.saved === "string" ? qs.saved : "";
 
   const applicant = await prisma.applicant.findUnique({
-    where: { id },
-    include: { property: true, referencing: true },
-  });
+  where: { id },
+  include: {
+    property: true,
+    referencing: true,
+    guarantors: {
+      where: { archivedAt: null },
+      orderBy: { createdAt: "desc" },
+    },
+  },
+});
+
+
 
   if (!applicant) notFound();
+
+  const safeApplicant = applicant;
 
   async function saveApplicantControls(formData: FormData) {
     "use server";
 
     const manualDecisionRaw = String(formData.get("manualDecision") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
-    const statusRaw = String(formData.get("status") ?? applicant.status).trim();
+    const statusRaw = String(formData.get("status") ?? safeApplicant.status).trim();
     const manualDecisionReason = String(formData.get("manualDecisionReason") ?? "").trim();
 
     const allowedStatuses = new Set(["APPLIED", "APPROVED", "DECLINED", "WITHDRAWN"]);
-    const nextStatus = allowedStatuses.has(statusRaw) ? statusRaw : applicant.status;
+    const nextStatus = allowedStatuses.has(statusRaw) ? statusRaw : safeApplicant.status;
 
     const manualDecision =
       manualDecisionRaw === "ACCEPT" ||
@@ -129,10 +142,10 @@ export default async function ApplicantDetailPage({
         : null;
 
     await prisma.applicant.update({
-      where: { id: applicant.id },
+      where: { id: safeApplicant.id },
       data: {
         notes: notes || null,
-        status: nextStatus as typeof applicant.status,
+        status: nextStatus as typeof safeApplicant.status,
         referencing: {
           upsert: {
             create: {
@@ -148,8 +161,8 @@ export default async function ApplicantDetailPage({
       },
     });
 
-    revalidatePath(`/applicants/${applicant.id}`);
-    redirect(`/applicants/${applicant.id}?saved=1`);
+    revalidatePath(`/applicants/${safeApplicant.id}`);
+    redirect(`/applicants/${safeApplicant.id}?saved=1`);
   }
 
   const rentMonthly = await getRent(applicant.propertyId, applicant.property?.advertisedRentMonthly ?? null);
@@ -176,10 +189,17 @@ export default async function ApplicantDetailPage({
   });
 
   const systemDecision = result.decision;
-  const effectiveDecision = getEffectiveDecision({
-    computedDecision: systemDecision,
-    manualDecision: applicant.referencing?.manualDecision ?? null,
-  });
+
+const baseDecision = getEffectiveDecision({
+  computedDecision: systemDecision,
+  manualDecision: applicant.referencing?.manualDecision ?? null,
+});
+
+const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
+  currentDecision: baseDecision,
+  guarantorRequired: applicant.guarantorRequired,
+  guarantorOutcome: applicant.guarantorOutcome,
+}) as typeof baseDecision;
 
   const derivedStatus =
     applicant.status === "WITHDRAWN" ? "WITHDRAWN" : decisionToApplicantStatus(effectiveDecision);
@@ -231,6 +251,13 @@ export default async function ApplicantDetailPage({
             >
               Screening: {getScreeningLabel(applicant.screeningStatus)}
             </span>
+
+            <Link
+            href={`/guarantors/new?applicantId=${applicant.id}`}
+            className="inline-flex items-center rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+          >
+            Add Guarantor
+          </Link>
           </div>
         </div>
 
@@ -677,6 +704,19 @@ export default async function ApplicantDetailPage({
         ) : null}
         <MessageTemplatesPanel drafts={drafts} applicantId={applicant.id} disabled={!applicant.email} />
       </div>
+
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
+
+      <GuarantorSummaryCard
+        applicantId={applicant.id}
+        guarantors={applicant.guarantors}
+        guarantorRequired={applicant.guarantorRequired}
+        guarantorAvailable={applicant.guarantorAvailable}
+        guarantorOutcome={applicant.guarantorOutcome}
+      />
     </div>
+
+    </div>    
   );
 }
