@@ -355,7 +355,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
             </div>
           </div>
         </div>
-
+        
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Screening</h2>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
@@ -411,6 +411,18 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
           </div>
         </div>
       </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
+
+          <GuarantorSummaryCard
+            applicantId={applicant.id}
+            guarantors={applicant.guarantors}
+            guarantorRequired={applicant.guarantorRequired}
+            guarantorAvailable={applicant.guarantorAvailable}
+            guarantorOutcome={applicant.guarantorOutcome}
+          />
+        </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -711,17 +723,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
         <MessageTemplatesPanel drafts={drafts} applicantId={applicant.id} disabled={!applicant.email} />
       </div>
 
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
-
-      <GuarantorSummaryCard
-        applicantId={applicant.id}
-        guarantors={applicant.guarantors}
-        guarantorRequired={applicant.guarantorRequired}
-        guarantorAvailable={applicant.guarantorAvailable}
-        guarantorOutcome={applicant.guarantorOutcome}
-      />
-    </div>
+    
 
     </div>    
   );

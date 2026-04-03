@@ -11,6 +11,13 @@ type Guarantor = {
   assessmentStatus?: string | null;
 };
 
+function statusChipClass(status?: string | null) {
+  if (status === "PASSED") return "bg-green-100 text-green-700 border-green-200";
+  if (status === "CONDITIONAL") return "bg-amber-100 text-amber-700 border-amber-200";
+  if (status === "FAILED") return "bg-red-100 text-red-700 border-red-200";
+  return "bg-slate-100 text-slate-600 border-slate-200";
+}
+
 export default function GuarantorSummaryCard({
   applicantId,
   guarantors,
@@ -28,18 +35,19 @@ export default function GuarantorSummaryCard({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">Required: {guarantorRequired ? "Yes" : "No"}</p>
-          <p className="text-sm text-slate-500">
-            Available: {guarantorAvailable == null ? "-" : guarantorAvailable ? "Yes" : "No"}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1 text-sm text-slate-600">
+          <p>Required: {guarantorRequired ? "Yes" : "No"}</p>
+          <p>
+            Available:{" "}
+            {guarantorAvailable == null ? "-" : guarantorAvailable ? "Yes" : "No"}
           </p>
-          <p className="text-sm text-slate-500">Outcome: {guarantorOutcome ?? "-"}</p>
+          <p>Outcome: {guarantorOutcome ?? "-"}</p>
         </div>
 
         <Link
           href={`/guarantors/new?applicantId=${applicantId}`}
-          className="inline-flex items-center rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+          className="btn btn-primary btn-sm"
         >
           Add Guarantor
         </Link>
@@ -50,13 +58,15 @@ export default function GuarantorSummaryCard({
           No guarantor linked yet.
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 px-4 py-3">
+        <div className="rounded-xl border border-slate-200 px-4 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-medium text-slate-900">
+              <p className="font-semibold text-slate-900">
                 {latest.fullName || `${latest.firstName} ${latest.lastName}`}
               </p>
-              <p className="text-sm text-slate-500">{latest.email || latest.phone || "No contact details"}</p>
+              <p className="text-sm text-slate-500">
+                {latest.email || latest.phone || "No contact details"}
+              </p>
               <p className="text-sm text-slate-500">
                 Income:{" "}
                 {typeof latest.annualIncomePence === "number"
@@ -65,16 +75,20 @@ export default function GuarantorSummaryCard({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusChipClass(
+                  latest.assessmentStatus,
+                )}`}
+              >
                 {latest.assessmentStatus ?? "PENDING"}
               </span>
 
               <Link
                 href={`/guarantors/${latest.id}`}
-                className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="link-button"
               >
-                View
+                View guarantor
               </Link>
             </div>
           </div>
