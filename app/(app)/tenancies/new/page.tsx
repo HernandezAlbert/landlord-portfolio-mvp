@@ -1,43 +1,72 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
-function asDateInput(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
+export default async function NewTenancyPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ propertyId?: string }>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const propertyId = resolvedSearchParams?.propertyId ?? "";
 
-export default async function NewTenancyPage({ searchParams }: { searchParams?: { propertyId?: string } }) {
-  const properties = await prisma.property.findMany({ orderBy: { createdAt: "asc" } });
-  const tenants = await prisma.tenant.findMany({ orderBy: { createdAt: "desc" } });
-
-  const defaultStart = asDateInput(new Date());
-  const preselectedPropertyId = searchParams?.propertyId ?? "";
+  const [properties, tenants] = await Promise.all([
+    prisma.property.findMany({
+      where: { deletedAt: null },
+      orderBy: { name: "asc" },
+    }),
+    prisma.tenant.findMany({
+      where: { deletedAt: null },
+      orderBy: { fullName: "asc" },
+    }),
+  ]);
 
   async function createTenancy(formData: FormData) {
     "use server";
 
-    const propertyId = String(formData.get("propertyId") ?? "");
-    const startDateStr = String(formData.get("startDate") ?? "");
-    const rentMonthlyPounds = Number(formData.get("rentMonthly") ?? 0);
-    const rentDueDay = Number(formData.get("rentDueDay") ?? 1);
-    const tenantIds = formData.getAll("tenantIds").map(String).filter(Boolean);
+    const propertyId = String(formData.get("propertyId") ?? "").trim();
+    const tenantIds = formData
+      .getAll("tenantIds")
+      .map((v) => String(v).trim())
+      .filter(Boolean);
 
-    if (!propertyId || !startDateStr || !rentMonthlyPounds) redirect("/tenancies/new");
+    const startDateRaw = String(formData.get("startDate") ?? "").trim();
+    const endDateRaw = String(formData.get("endDate") ?? "").trim();
+    const rentMonthlyRaw = String(formData.get("rentMonthly") ?? "").trim();
+    const depositRaw = String(formData.get("deposit") ?? "").trim();
+    const paymentDayRaw = String(formData.get("paymentDay") ?? "").trim();
+    const notesRaw = String(formData.get("notes") ?? "").trim();
 
-    const autoGenerateRent = String(formData.get("autoGenerateRent") ?? "true") === "true";
-    const rentGenerateMonthsAhead = Math.min(24, Math.max(1, Number(formData.get("rentGenerateMonthsAhead") ?? 3) || 3));
+    if (!propertyId || !startDateRaw || !rentMonthlyRaw) {
+      redirect("/tenancies/new");
+    }
+
+    const rentMonthly = Math.round(Number(rentMonthlyRaw) * 100);
+    const deposit =
+      depositRaw && Number.isFinite(Number(depositRaw))
+        ? Math.round(Number(depositRaw) * 100)
+        : null;
+    const paymentDay =
+      paymentDayRaw && Number.isFinite(Number(paymentDayRaw))
+        ? Number(paymentDayRaw)
+        : 1;
 
     const tenancy = await prisma.tenancy.create({
       data: {
         propertyId,
-        startDate: new Date(startDateStr),
-        rentMonthly: Math.round(rentMonthlyPounds * 100),
-        rentDueDay: Math.min(28, Math.max(1, rentDueDay || 1)),
+        startDate: new Date(startDateRaw),
+        endDate: endDateRaw ? new Date(endDateRaw) : null,
+        rentMonthly,
+        deposit,
+        paymentDay,
         isActive: true,
-        autoGenerateRent,
-        rentGenerateMonthsAhead,
-        tenants: {
-          create: tenantIds.map((tenantId, idx) => ({ tenantId, role: idx === 0 ? "Lead" : "Joint" })),
-        },
+        notes: notesRaw || null,
+        tenants: tenantIds.length
+          ? {
+              create: tenantIds.map((tenantId) => ({
+                tenantId,
+              })),
+            }
+          : undefined,
       },
     });
 
@@ -45,73 +74,126 @@ export default async function NewTenancyPage({ searchParams }: { searchParams?: 
   }
 
   return (
-    <div style={{ display: "grid", gap: 12, maxWidth: 900 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>New tenancy</h1>
-      <p style={{ margin: 0, opacity: 0.75 }}>
-        Create the tenancy first. Then add rent payments from the tenancy page.
-      </p>
+    <div className="grid gap-4 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-black">New tenancy</h1>
+        <a href="/tenancies">← Back</a>
+      </div>
 
-      <form action={createTenancy} style={{ display: "grid", gap: 10 }}>
-        <label>
-          Property
-          <select name="propertyId" defaultValue={preselectedPropertyId} style={{ width: "100%" }}>
-            <option value="">Select…</option>
-            {properties.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} — {p.postcode}</option>
+      <form
+        action={createTenancy}
+        className="grid gap-4 rounded-xl border bg-white p-4"
+      >
+        <label className="grid gap-1 text-sm">
+          <span>Property</span>
+          <select
+            name="propertyId"
+            defaultValue={propertyId}
+            className="rounded border px-3 py-2"
+            required
+          >
+            <option value="">Select property</option>
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name}
+              </option>
             ))}
           </select>
         </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label>
-            Start date
-            <input type="date" name="startDate" defaultValue={defaultStart} style={{ width: "100%" }} />
-          </label>
-          <label>
-            Rent due day (1–28)
-            <input type="number" name="rentDueDay" defaultValue={1} min={1} max={28} style={{ width: "100%" }} />
-          </label>
-        </div>
-
-        <label>
-          Rent monthly (£)
-          <input type="number" name="rentMonthly" defaultValue={1200} step={0.01} min={0} style={{ width: "100%" }} />
+        <label className="grid gap-1 text-sm">
+          <span>Tenants</span>
+          <select
+            name="tenantIds"
+            multiple
+            className="min-h-40 rounded border px-3 py-2"
+          >
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.fullName}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-500">
+            Hold Ctrl or Cmd to select more than one tenant.
+          </span>
         </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label>
-            Automatic rent tracking
-            <select name="autoGenerateRent" defaultValue="true" style={{ width: "100%" }}>
-              <option value="true">Enabled</option>
-              <option value="false">Disabled</option>
-            </select>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-1 text-sm">
+            <span>Start date</span>
+            <input
+              type="date"
+              name="startDate"
+              className="rounded border px-3 py-2"
+              required
+            />
           </label>
-          <label>
-            Generate months ahead
-            <input type="number" name="rentGenerateMonthsAhead" defaultValue={3} min={1} max={24} style={{ width: "100%" }} />
+
+          <label className="grid gap-1 text-sm">
+            <span>End date (optional)</span>
+            <input
+              type="date"
+              name="endDate"
+              className="rounded border px-3 py-2"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span>Monthly rent (£)</span>
+            <input
+              type="number"
+              name="rentMonthly"
+              step="0.01"
+              min="0"
+              className="rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span>Deposit (£)</span>
+            <input
+              type="number"
+              name="deposit"
+              step="0.01"
+              min="0"
+              className="rounded border px-3 py-2"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span>Payment day of month</span>
+            <input
+              type="number"
+              name="paymentDay"
+              min="1"
+              max="31"
+              defaultValue="1"
+              className="rounded border px-3 py-2"
+            />
           </label>
         </div>
 
-        <fieldset style={{ border: "1px solid #eee", borderRadius: 8, padding: 10 }}>
-          <legend style={{ padding: "0 6px" }}>Tenants on this tenancy</legend>
-          <div style={{ display: "grid", gap: 6 }}>
-            {tenants.length === 0 && (
-              <div style={{ opacity: 0.75 }}>
-                No tenants yet. Create tenants first on the <a href="/tenants">Tenants</a> page.
-              </div>
-            )}
-            {tenants.map((t) => (
-              <label key={t.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input type="checkbox" name="tenantIds" value={t.id} />
-                <span>{t.fullName}{t.email ? ` (${t.email})` : ""}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <label className="grid gap-1 text-sm">
+          <span>Notes</span>
+          <textarea
+            name="notes"
+            rows={4}
+            className="rounded border px-3 py-2"
+          />
+        </label>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="submit">Create tenancy</button>
-          <a href="/tenancies">Cancel</a>
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            className="rounded-lg bg-slate-900 px-4 py-2 text-white"
+          >
+            Create tenancy
+          </button>
+          <a href="/tenancies" className="rounded-lg border px-4 py-2">
+            Cancel
+          </a>
         </div>
       </form>
     </div>
