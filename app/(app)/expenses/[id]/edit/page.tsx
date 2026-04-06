@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
-import { deleteExpenseReceiptByPath, saveExpenseReceipt } from "@/lib/expense-receipts";
+import {
+  deleteExpenseReceiptByPath,
+  saveExpenseReceipt,
+} from "@/lib/expense-receipts";
 
 const EXPENSE_CATEGORIES = [
   "REPAIRS",
@@ -19,13 +22,22 @@ function fmtDateInput(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export default async function EditExpensePage({ params }: { params: { id: string } }) {
+export default async function EditExpensePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
   const [expense, properties] = await Promise.all([
     prisma.expense.findFirst({
-      where: { id: params.id, deletedAt: null },
+      where: { id, deletedAt: null },
       include: { property: true },
     }),
-    prisma.property.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
+    prisma.property.findMany({
+      where: { deletedAt: null },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   if (!expense) redirect("/expenses");
@@ -34,6 +46,7 @@ export default async function EditExpensePage({ params }: { params: { id: string
 
   async function updateExpense(formData: FormData) {
     "use server";
+
     const propertyId = String(formData.get("propertyId") ?? "").trim();
     const date = String(formData.get("date") ?? "").trim();
     const amountPounds = Number(formData.get("amount") ?? 0);
@@ -45,22 +58,32 @@ export default async function EditExpensePage({ params }: { params: { id: string
     const removeReceipt = formData.get("removeReceipt") === "on";
     const receipt = formData.get("receipt");
 
-    if (!propertyId || !date || !amountPounds) redirect(`/expenses/${params.id}/edit`);
+    if (!propertyId || !date || !amountPounds) {
+      redirect(`/expenses/${id}/edit`);
+    }
 
     let receiptPath = expenseItem.receiptPath;
     let receiptStoragePath = expenseItem.receiptStoragePath;
     let receiptOriginalName = expenseItem.receiptOriginalName;
 
     if (removeReceipt) {
-      await deleteExpenseReceiptByPath(expenseItem.receiptPath, expenseItem.receiptStoragePath);
+      await deleteExpenseReceiptByPath(
+        expenseItem.receiptPath,
+        expenseItem.receiptStoragePath
+      );
       receiptPath = null;
       receiptStoragePath = null;
       receiptOriginalName = null;
     }
 
     const incomingFile = receipt instanceof File && receipt.size ? receipt : null;
+
     if (incomingFile && (replaceReceipt || !expenseItem.receiptPath)) {
-      await deleteExpenseReceiptByPath(expenseItem.receiptPath, expenseItem.receiptStoragePath);
+      await deleteExpenseReceiptByPath(
+        expenseItem.receiptPath,
+        expenseItem.receiptStoragePath
+      );
+
       const receiptData = await saveExpenseReceipt(incomingFile);
       receiptPath = receiptData?.receiptPath || null;
       receiptStoragePath = receiptData?.receiptStoragePath || null;
@@ -68,7 +91,7 @@ export default async function EditExpensePage({ params }: { params: { id: string
     }
 
     await prisma.expense.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         propertyId,
         date: new Date(date),
@@ -88,28 +111,42 @@ export default async function EditExpensePage({ params }: { params: { id: string
 
   async function deleteExpense() {
     "use server";
+
     await prisma.expense.update({
-      where: { id: params.id },
+      where: { id },
       data: { deletedAt: new Date() },
     });
-    await deleteExpenseReceiptByPath(expenseItem.receiptPath, expenseItem.receiptStoragePath);
+
+    await deleteExpenseReceiptByPath(
+      expenseItem.receiptPath,
+      expenseItem.receiptStoragePath
+    );
+
     redirect("/expenses");
   }
 
   return (
-    <div style={{ display: "grid", gap: 12, maxWidth: 900 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Edit expense</h1>
-        <a href="/expenses" className="btn btn-secondary btn-sm">
+    <div className="max-w-3xl space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Edit expense</h1>
+        <a href="/expenses" className="text-sm underline">
           Back
         </a>
       </div>
 
-      <form action={updateExpense} style={{ display: "grid", gap: 10, border: "1px solid #eee", borderRadius: 8, padding: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <label>
-            Property
-            <select name="propertyId" defaultValue={expenseItem.propertyId} style={{ width: "100%" }}>
+      <form
+        action={updateExpense}
+        className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm"
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-1 text-sm">
+            <span>Property</span>
+            <select
+              name="propertyId"
+              defaultValue={expenseItem.propertyId}
+              className="rounded-xl border px-3 py-2"
+              required
+            >
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -117,20 +154,38 @@ export default async function EditExpensePage({ params }: { params: { id: string
               ))}
             </select>
           </label>
-          <label>
-            Date
-            <input type="date" name="date" defaultValue={fmtDateInput(expenseItem.date)} style={{ width: "100%" }} />
-          </label>
-          <label>
-            Amount (£)
-            <input type="number" step="0.01" name="amount" defaultValue={(expenseItem.amount / 100).toFixed(2)} style={{ width: "100%" }} />
-          </label>
-        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <label>
-            Category
-            <select name="category" defaultValue={expenseItem.category} style={{ width: "100%" }}>
+          <label className="grid gap-1 text-sm">
+            <span>Date</span>
+            <input
+              type="date"
+              name="date"
+              defaultValue={fmtDateInput(expenseItem.date)}
+              className="rounded-xl border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span>Amount (£)</span>
+            <input
+              type="number"
+              name="amount"
+              step="0.01"
+              min="0"
+              defaultValue={(expenseItem.amount / 100).toFixed(2)}
+              className="rounded-xl border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            <span>Category</span>
+            <select
+              name="category"
+              defaultValue={expenseItem.category}
+              className="rounded-xl border px-3 py-2"
+            >
               {EXPENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -138,64 +193,107 @@ export default async function EditExpensePage({ params }: { params: { id: string
               ))}
             </select>
           </label>
-          <label>
-            Vendor (optional)
-            <input name="vendor" defaultValue={expenseItem.vendor ?? ""} style={{ width: "100%" }} />
+
+          <label className="grid gap-1 text-sm">
+            <span>Vendor (optional)</span>
+            <input
+              name="vendor"
+              defaultValue={expenseItem.vendor ?? ""}
+              className="rounded-xl border px-3 py-2"
+            />
           </label>
-          <label>
-            Reference (optional)
-            <input name="reference" defaultValue={expenseItem.reference ?? ""} style={{ width: "100%" }} />
+
+          <label className="grid gap-1 text-sm">
+            <span>Reference (optional)</span>
+            <input
+              name="reference"
+              defaultValue={expenseItem.reference ?? ""}
+              className="rounded-xl border px-3 py-2"
+            />
           </label>
         </div>
 
-        <label>
-          Notes
-          <input name="notes" defaultValue={expenseItem.notes ?? ""} style={{ width: "100%" }} />
+        <label className="grid gap-1 text-sm">
+          <span>Notes</span>
+          <textarea
+            name="notes"
+            defaultValue={expenseItem.notes ?? ""}
+            className="min-h-28 rounded-xl border px-3 py-2"
+          />
         </label>
 
-        <div style={{ display: "grid", gap: 10, border: "1px solid #eee", borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 700 }}>Receipt</div>
+        <div className="grid gap-3 rounded-xl border p-4">
+          <div className="text-sm font-medium">Receipt</div>
+
           {expenseItem.receiptPath ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <a href={expenseItem.receiptPath} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+            <div className="text-sm">
+              <a
+                href={expenseItem.receiptPath}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
                 View current receipt
-              </a>
-              <span style={{ opacity: 0.8 }}>{expenseItem.receiptOriginalName || "Saved receipt"}</span>
+              </a>{" "}
+              <span className="text-slate-500">
+                {expenseItem.receiptOriginalName || "Saved receipt"}
+              </span>
             </div>
           ) : (
-            <div style={{ opacity: 0.7 }}>No receipt attached.</div>
+            <p className="text-sm text-slate-500">No receipt attached.</p>
           )}
-          <label>
-            Upload replacement receipt
-            <input type="file" name="receipt" accept=".pdf,image/*" style={{ width: "100%" }} />
+
+          <label className="grid gap-1 text-sm">
+            <span>Upload replacement receipt</span>
+            <input type="file" name="receipt" className="rounded-xl border px-3 py-2" />
           </label>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="checkbox" name="replaceReceipt" /> Replace current receipt if a new file is selected
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="replaceReceipt" />
+            <span>Replace current receipt if a new file is selected</span>
           </label>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="checkbox" name="removeReceipt" /> Remove current receipt
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="removeReceipt" />
+            <span>Remove current receipt</span>
           </label>
         </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="submit" className="btn btn-primary">
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
+          >
             Save changes
           </button>
-          <a href="/expenses" className="btn btn-secondary">
+
+          <a href="/expenses" className="rounded-xl border px-4 py-2 text-sm font-medium">
             Cancel
           </a>
         </div>
       </form>
 
-      <section style={{ border: "1px solid #f2c2c2", borderRadius: 8, padding: 12, background: "#fff7f7" }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 900 }}>Danger zone</h2>
-        <p style={{ marginTop: 6, opacity: 0.8 }}>Delete this expense from active lists.</p>
-        <form action={deleteExpense}>
-          <ConfirmSubmit className="btn btn-secondary btn-sm" confirmMessage="Delete this expense?">
-            Delete expense
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+        <h2 className="text-lg font-semibold text-red-800">Danger zone</h2>
+        <p className="mt-1 text-sm text-red-700">
+          Delete this expense from active lists.
+        </p>
+
+        <form action={deleteExpense} className="mt-4">
+          <ConfirmSubmit
+            title="Delete expense?"
+            description="This will hide the expense from active lists."
+            confirmText="Delete expense"
+          >
+            <button
+              type="submit"
+              className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700"
+            >
+              Delete expense
+            </button>
           </ConfirmSubmit>
         </form>
-      </section>
+      </div>
     </div>
   );
 }

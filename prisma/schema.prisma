@@ -46,6 +46,7 @@ model Property {
   tenancies                       Tenancy[]
   reportSchedules                 ReportSchedule[]
   reportRuns                      ReportRun[]
+  holdingDeposits HoldingDeposit[]
   
   @@index([deletedAt])
   @@index([googleFormImportEnabled])
@@ -327,6 +328,7 @@ model Applicant {
   guarantorOutcome    GuarantorAssessmentStatus?
   guarantorNotes      String?
   guarantors          Guarantor[]
+  holdingDeposit      HoldingDeposit?
 
   @@index([propertyId])
   @@index([status])
@@ -466,31 +468,79 @@ model ReportSnapshot {
 }
 
 model Guarantor {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  firstName String
-  lastName  String
-  fullName  String?
-
-  email               String?
-  phone               String?
-  annualIncomePence   Int?
-
-  deedSigned         Boolean  @default(false)
-  deedSignedAt       DateTime?
-  assessmentScore    Int?
-  assessmentSummary  String?
-
-  assessmentStatus GuarantorAssessmentStatus @default(PENDING)
-  archivedAt       DateTime?
-
-  applicantId String?
-  applicant   Applicant? @relation(fields: [applicantId], references: [id], onDelete: SetNull)
+  id                    String                    @id @default(cuid())
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  firstName             String
+  lastName              String
+  fullName              String?
+  email                 String?
+  phone                 String?
+  annualIncomePence     Int?
+  dateOfBirth           DateTime?
+  relationshipToApplicant String?
+  address1              String?
+  address2              String?
+  city                  String?
+  postcode              String?
+  employmentStatus      String?
+  employerName          String?
+  jobTitle              String?
+  notes                 String?
+  deedSigned            Boolean                   @default(false)
+  deedSignedAt          DateTime?
+  assessmentScore       Int?
+  assessmentSummary     String?
+  assessmentStatus      GuarantorAssessmentStatus @default(PENDING)
+  archivedAt            DateTime?
+  applicantId           String?
+  applicant             Applicant?                @relation(fields: [applicantId], references: [id], onDelete: SetNull)
 
   @@index([applicantId])
   @@index([archivedAt])
+}
+
+model HoldingDeposit {
+  id                     String                  @id @default(cuid())
+  applicantId            String @unique
+  propertyId             String?
+  amountRequestedPence   Int
+  amountReceivedPence    Int?
+  weeklyRentSnapshotPence Int?
+  receivedAt             DateTime?
+  deadlineAt             DateTime
+  status                 HoldingDepositStatus    @default(PENDING)
+  outcomeReason          String?
+  refundedAt             DateTime?
+  retainedAt             DateTime?
+  appliedAt              DateTime?
+  appliedTo              HoldingDepositAppliedTo?
+  consentToApply         Boolean                 @default(false)
+  tenancySignedConfirmed Boolean                 @default(false)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  property  Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([applicantId, status])
+  @@index([propertyId, status])
+  @@index([deadlineAt])
+}
+
+enum HoldingDepositStatus {
+  PENDING
+  RECEIVED
+  REFUNDED
+  RETAINED
+  APPLIED
+  EXPIRED
+  CANCELLED
+}
+
+enum HoldingDepositAppliedTo {
+  FIRST_RENT
+  TENANCY_DEPOSIT
 }
 
 enum ReportType {

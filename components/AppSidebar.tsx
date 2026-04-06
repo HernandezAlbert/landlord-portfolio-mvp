@@ -9,13 +9,14 @@ const items = [
   ["/tenancies", "Tenancies"],
   ["/tenants", "Tenants"],
   ["/applicants", "Applicants"],
+  ["/holding-deposits", "Holding Deposits"],
   ["/expenses", "Expenses"],
   ["/finance", "Finance"],
   ["/finance/reporting", "Reporting"],
   ["/actions", "Weekly Actions"],
   ["/automation", "Automation"],
   ["/notices", "Notices"],
-  ["/settings", "Settings"],
+  ["/settings", "Settings"],  
 ] as const;
 
 export default function AppSidebar({ email }: { email: string }) {
