@@ -12,18 +12,11 @@ function parseDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function getId(
-  params: Promise<{ id: string }> | { id: string }
-): Promise<string> {
-  const resolved = "then" in params ? await params : params;
-  return resolved.id;
-}
-
 export async function PUT(
   req: Request,
-  context: { params: Promise<{ id: string }> | { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = await getId(context.params);
+  const { id } = await context.params;
   const body = await req.json();
 
   const firstName = String(body.firstName ?? "").trim();
@@ -56,7 +49,9 @@ export async function PUT(
       jobTitle: cleanString(body.jobTitle),
       notes: cleanString(body.notes),
       deedSigned,
-      deedSignedAt: deedSigned ? parseDate(body.deedSignedAt) ?? new Date() : null,
+      deedSignedAt: deedSigned
+        ? parseDate(body.deedSignedAt) ?? new Date()
+        : null,
     },
   });
 
