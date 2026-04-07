@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import GlobalUiEnhancer from "@/components/GlobalUiEnhancer";
 
 export const metadata: Metadata = {
@@ -7,11 +8,17 @@ export const metadata: Metadata = {
   description: "Single-user landlord portfolio MVP",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body>
-        <GlobalUiEnhancer />
+        <Suspense fallback={null}>
+          <GlobalUiEnhancer />
+        </Suspense>
         {children}
       </body>
     </html>
