@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { HoldingDepositStatus, Prisma } from "@prisma/client";
+import { HoldingDepositStatus } from "@prisma/client";
 import { notFound, redirect } from "next/navigation";
 
 async function getRent(
@@ -23,6 +23,17 @@ async function getRent(
 
 function calculateWeeklyRentFromMonthlyPence(monthly: number) {
   return Math.round((monthly * 12) / 52);
+}
+
+function defaultDeadlineFromReceived(receivedAt: Date) {
+  const d = new Date(receivedAt);
+  d.setDate(d.getDate() + 15);
+  return d;
+}
+
+function fmtDateInput(value?: Date | null) {
+  if (!value) return "";
+  return new Date(value).toISOString().slice(0, 10);
 }
 
 export default async function ApplicantHoldingDepositPage({
@@ -53,80 +64,76 @@ export default async function ApplicantHoldingDepositPage({
   const weeklyRentPence = calculateWeeklyRentFromMonthlyPence(rentMonthly);
   const holdingDeposit = applicant.holdingDeposit;
 
- async function createHoldingDeposit(formData: FormData) {
-  "use server";
+  async function saveHoldingDeposit(formData: FormData) {
+    "use server";
 
-  const applicantId = String(formData.get("applicantId") ?? "").trim();
-  const amountPounds = Number(formData.get("amountRequested") ?? 0);
-  const receivedDateRaw = String(formData.get("receivedAt") ?? "").trim();
-  const deadlineRaw = String(formData.get("deadlineAt") ?? "").trim();
+    const applicantId = String(formData.get("applicantId") ?? "").trim();
+    const amountPounds = Number(formData.get("amountRequested") ?? 0);
+    const receivedDateRaw = String(formData.get("receivedAt") ?? "").trim();
+    const deadlineRaw = String(formData.get("deadlineAt") ?? "").trim();
 
-  if (!applicantId || !amountPounds) {
-    redirect(`/applicants/${id}/holding-deposit`);
-  }
+    if (!applicantId || !amountPounds) {
+      redirect(`/applicants/${id}/holding-deposit`);
+    }
 
-  const freshApplicant = await prisma.applicant.findUnique({
-    where: { id: applicantId },
-    include: { property: true },
-  });
+    const freshApplicant = await prisma.applicant.findUnique({
+      where: { id: applicantId },
+      include: { property: true },
+    });
 
-  if (!freshApplicant) {
-    redirect("/applicants");
-  }
+    if (!freshApplicant) {
+      redirect("/applicants");
+    }
 
-  if (!freshApplicant.propertyId) {
-    throw new Error("Applicant must have a propertyId");
-  }
+    const amountRequestedPence = Math.round(amountPounds * 100);
 
-  const amountPence = Math.round(amountPounds * 100);
-  const weeklyRentSnapshotPence = calculateWeeklyRentFromMonthlyPence(
-    await getRent(
+    const resolvedRentMonthly = await getRent(
       freshApplicant.propertyId,
       freshApplicant.property?.advertisedRentMonthly ?? null
-    )
-  );
+    );
 
-  const receivedAt = receivedDateRaw ? new Date(receivedDateRaw) : new Date();
-  const deadlineAt = deadlineRaw ? new Date(deadlineRaw) : null;
+    const weeklyRentSnapshotPence =
+      calculateWeeklyRentFromMonthlyPence(resolvedRentMonthly);
 
-  const existing = await prisma.holdingDeposit.findUnique({
-    where: { applicantId },
-    select: { id: true },
-  });
+    const receivedAt = receivedDateRaw ? new Date(receivedDateRaw) : new Date();
+    const deadlineAt = deadlineRaw
+      ? new Date(deadlineRaw)
+      : defaultDeadlineFromReceived(receivedAt);
 
-  const updateData: Prisma.HoldingDepositUncheckedUpdateInput = {
-    amountRequestedPence: amountPence,
-    amountReceivedPence: amountPence,
-    weeklyRentSnapshotPence,
-    receivedAt,
-    status: HoldingDepositStatus.RECEIVED,
-    ...(deadlineAt ? { deadlineAt } : {}),
-  };
-
-  const createData: Prisma.HoldingDepositUncheckedCreateInput = {
-    applicantId,
-    propertyId: freshApplicant.propertyId,
-    amountRequestedPence: amountPence,
-    amountReceivedPence: amountPence,
-    weeklyRentSnapshotPence,
-    receivedAt,
-    status: HoldingDepositStatus.RECEIVED,
-    ...(deadlineAt ? { deadlineAt } : {}),
-  };
-
-  if (existing) {
-    await prisma.holdingDeposit.update({
+    const existing = await prisma.holdingDeposit.findUnique({
       where: { applicantId },
-      data: updateData,
+      select: { id: true },
     });
-  } else {
-    await prisma.holdingDeposit.create({
-      data: createData,
-    });
-  }
 
-  redirect(`/applicants/${id}/holding-deposit`);
-}
+    if (existing) {
+      await prisma.holdingDeposit.update({
+        where: { applicantId },
+        data: {
+          amountRequestedPence,
+          amountReceivedPence: amountRequestedPence,
+          weeklyRentSnapshotPence,
+          receivedAt,
+          deadlineAt,
+          status: HoldingDepositStatus.RECEIVED,
+        },
+      });
+    } else {
+      await prisma.holdingDeposit.create({
+        data: {
+          applicantId,
+          propertyId: freshApplicant.propertyId ?? null,
+          amountRequestedPence,
+          amountReceivedPence: amountRequestedPence,
+          weeklyRentSnapshotPence,
+          receivedAt,
+          deadlineAt,
+          status: HoldingDepositStatus.RECEIVED,
+        },
+      });
+    }
+
+    redirect(`/applicants/${id}/holding-deposit`);
+  }
 
   return (
     <div className="grid max-w-3xl gap-4">
@@ -134,8 +141,7 @@ export default async function ApplicantHoldingDepositPage({
 
       <div className="rounded border bg-white p-4">
         <p>
-          <strong>Applicant:</strong>{" "}
-          {[applicant.firstName, applicant.lastName].filter(Boolean).join(" ")}
+          <strong>Applicant:</strong> {applicant.fullName}
         </p>
         <p>
           <strong>Property:</strong> {applicant.property?.name ?? "—"}
@@ -149,7 +155,7 @@ export default async function ApplicantHoldingDepositPage({
       </div>
 
       <form
-        action={createHoldingDeposit}
+        action={saveHoldingDeposit}
         className="grid gap-3 rounded border bg-white p-4"
       >
         <input type="hidden" name="applicantId" value={id} />
@@ -176,11 +182,7 @@ export default async function ApplicantHoldingDepositPage({
             name="receivedAt"
             type="date"
             className="rounded border px-3 py-2"
-            defaultValue={
-              holdingDeposit?.receivedAt
-                ? new Date(holdingDeposit.receivedAt).toISOString().slice(0, 10)
-                : ""
-            }
+            defaultValue={fmtDateInput(holdingDeposit?.receivedAt)}
           />
         </label>
 
@@ -190,11 +192,7 @@ export default async function ApplicantHoldingDepositPage({
             name="deadlineAt"
             type="date"
             className="rounded border px-3 py-2"
-            defaultValue={
-              holdingDeposit?.deadlineAt
-                ? new Date(holdingDeposit.deadlineAt).toISOString().slice(0, 10)
-                : ""
-            }
+            defaultValue={fmtDateInput(holdingDeposit?.deadlineAt)}
           />
         </label>
 
@@ -208,9 +206,7 @@ export default async function ApplicantHoldingDepositPage({
           <h2 className="font-semibold">Current Holding Deposit</h2>
           <p>
             Requested: £
-            {typeof holdingDeposit.amountRequestedPence === "number"
-              ? (holdingDeposit.amountRequestedPence / 100).toFixed(2)
-              : "0.00"}
+            {(holdingDeposit.amountRequestedPence / 100).toFixed(2)}
           </p>
           <p>
             Received: £
