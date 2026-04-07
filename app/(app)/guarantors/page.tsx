@@ -23,8 +23,7 @@ export default async function GuarantorsPage() {
       applicant: {
         select: {
           id: true,
-          firstName: true,
-          lastName: true,
+          fullName: true,
         },
       },
     },
@@ -85,18 +84,19 @@ export default async function GuarantorsPage() {
 
               <tbody className="divide-y divide-slate-100">
                 {guarantors.map((guarantor) => {
-                  const fullName =
+                  const guarantorName =
                     guarantor.fullName?.trim() ||
                     `${guarantor.firstName} ${guarantor.lastName}`.trim();
 
-                  const applicantName = guarantor.applicant
-                    ? `${guarantor.applicant.firstName} ${guarantor.applicant.lastName}`.trim()
-                    : "—";
+                  const applicantName =
+                    guarantor.applicant?.fullName?.trim() || "—";
 
                   return (
                     <tr key={guarantor.id} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{fullName}</div>
+                        <div className="font-medium text-slate-900">
+                          {guarantorName}
+                        </div>
                       </td>
 
                       <td className="px-4 py-3 text-slate-600">

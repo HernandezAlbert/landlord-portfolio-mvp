@@ -32,8 +32,7 @@ export default async function NewTenancyPage({
     const startDateRaw = String(formData.get("startDate") ?? "").trim();
     const endDateRaw = String(formData.get("endDate") ?? "").trim();
     const rentMonthlyRaw = String(formData.get("rentMonthly") ?? "").trim();
-    const depositRaw = String(formData.get("deposit") ?? "").trim();
-    const paymentDayRaw = String(formData.get("paymentDay") ?? "").trim();
+    const rentDueDayRaw = String(formData.get("rentDueDay") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
 
     if (!propertyId || !startDateRaw || !rentMonthlyRaw) {
@@ -41,13 +40,9 @@ export default async function NewTenancyPage({
     }
 
     const rentMonthly = Math.round(Number(rentMonthlyRaw) * 100);
-    const deposit =
-      depositRaw && Number.isFinite(Number(depositRaw))
-        ? Math.round(Number(depositRaw) * 100)
-        : null;
-    const paymentDay =
-      paymentDayRaw && Number.isFinite(Number(paymentDayRaw))
-        ? Number(paymentDayRaw)
+    const rentDueDay =
+      rentDueDayRaw && Number.isFinite(Number(rentDueDayRaw))
+        ? Number(rentDueDayRaw)
         : 1;
 
     const tenancy = await prisma.tenancy.create({
@@ -56,8 +51,7 @@ export default async function NewTenancyPage({
         startDate: new Date(startDateRaw),
         endDate: endDateRaw ? new Date(endDateRaw) : null,
         rentMonthly,
-        deposit,
-        paymentDay,
+        rentDueDay,
         isActive: true,
         notes: notesRaw || null,
         tenants: tenantIds.length
@@ -152,21 +146,10 @@ export default async function NewTenancyPage({
           </label>
 
           <label className="grid gap-1 text-sm">
-            <span>Deposit (£)</span>
+            <span>Rent due day of month</span>
             <input
               type="number"
-              name="deposit"
-              step="0.01"
-              min="0"
-              className="rounded border px-3 py-2"
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Payment day of month</span>
-            <input
-              type="number"
-              name="paymentDay"
+              name="rentDueDay"
               min="1"
               max="31"
               defaultValue="1"

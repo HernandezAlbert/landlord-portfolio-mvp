@@ -40,7 +40,9 @@ function buildApplicantUpdateData(args: {
     fullName: row.fullName,
     email: row.email,
     phone: row.phone,
-    propertyId,
+    property: propertyId
+      ? { connect: { id: propertyId } }
+      : { disconnect: true },
     employmentStatus: row.employmentStatus,
     monthlyIncome: row.monthlyIncome,
     requestedMoveIn: row.requestedMoveIn,
@@ -92,7 +94,14 @@ async function updateExistingApplicant(args: {
   importSource: "GOOGLE_FORM" | "GOOGLE_FORM_AUTO";
   existingApplicants: DuplicateApplicantCandidate[];
 }) {
-  const { applicantId, propertyId, row, screening, importSource, existingApplicants } = args;
+  const {
+    applicantId,
+    propertyId,
+    row,
+    screening,
+    importSource,
+    existingApplicants,
+  } = args;
 
   await prisma.applicant.update({
     where: { id: applicantId },
@@ -106,7 +115,10 @@ async function updateExistingApplicant(args: {
 
   await recalculateApplicant(applicantId);
 
-  const idx = existingApplicants.findIndex((candidate) => candidate.id === applicantId);
+  const idx = existingApplicants.findIndex(
+    (candidate) => candidate.id === applicantId,
+  );
+
   const nextCandidate: DuplicateApplicantCandidate = {
     id: applicantId,
     importExternalKey: row.externalKey,
@@ -130,7 +142,9 @@ function isUniqueImportExternalKeyError(error: unknown) {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
     Array.isArray((error.meta as { target?: unknown } | undefined)?.target) &&
-    ((error.meta as { target?: unknown[] }).target ?? []).includes("importExternalKey")
+    ((error.meta as { target?: unknown[] }).target ?? []).includes(
+      "importExternalKey",
+    )
   );
 }
 
@@ -152,7 +166,6 @@ export async function upsertImportedApplicant(
     guarantorMinMultiplier,
   });
 
-  // 1) Strongest match: importExternalKey already in DB
   if (row.externalKey) {
     const existingByKey = await prisma.applicant.findUnique({
       where: { importExternalKey: row.externalKey },
@@ -171,8 +184,8 @@ export async function upsertImportedApplicant(
     }
   }
 
-  // 2) Fallback duplicate matching in memory
   const existing = applicantLooksDuplicate(existingApplicants, row);
+
   if (existing?.id) {
     return updateExistingApplicant({
       applicantId: existing.id,
@@ -184,7 +197,6 @@ export async function upsertImportedApplicant(
     });
   }
 
-  // 3) Create only if nothing matched
   const status = getApplicantStatusFromDecision({
     decision: screening.decision,
     currentStatus: "APPLIED",
@@ -196,7 +208,9 @@ export async function upsertImportedApplicant(
         fullName: row.fullName,
         email: row.email,
         phone: row.phone,
-        propertyId,
+        property: propertyId
+          ? { connect: { id: propertyId } }
+          : undefined,
         employmentStatus: row.employmentStatus,
         monthlyIncome: row.monthlyIncome,
         requestedMoveIn: row.requestedMoveIn,
@@ -241,7 +255,6 @@ export async function upsertImportedApplicant(
 
     return { applicantId: applicant.id, action: "created" };
   } catch (error) {
-    // 4) Safety net: if another path/process created it first, update instead of crashing
     if (isUniqueImportExternalKeyError(error) && row.externalKey) {
       const existingAfterConflict = await prisma.applicant.findUnique({
         where: { importExternalKey: row.externalKey },
