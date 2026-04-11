@@ -11,7 +11,10 @@ export type ApplicantStatus =
   | "DECLINED"
   | "REJECTED"
   | "MORE_INFO_REQUESTED"
-  | "WITHDRAWN";
+  | "WITHDRAWN"
+  | "HOLDING_DEPOSIT_PENDING"
+  | "RESERVED"
+  | "HOLDING_DEPOSIT_EXPIRED";
 
 export type ScreeningStatus =
   | "ACCEPT"
@@ -71,7 +74,10 @@ export function normalizeApplicantStatus(value?: string | null): ApplicantStatus
     value === "DECLINED" ||
     value === "REJECTED" ||
     value === "MORE_INFO_REQUESTED" ||
-    value === "WITHDRAWN"
+    value === "WITHDRAWN" ||
+    value === "HOLDING_DEPOSIT_PENDING" ||
+    value === "RESERVED" ||
+    value === "HOLDING_DEPOSIT_EXPIRED"
   ) {
     return value;
   }
@@ -95,6 +101,12 @@ export function formatApplicantStatus(status?: string | null) {
       return "Requested more info / guarantor";
     case "WITHDRAWN":
       return "Withdrawn";
+    case "HOLDING_DEPOSIT_PENDING":
+      return "Holding deposit requested";
+    case "RESERVED":
+      return "Reserved";
+    case "HOLDING_DEPOSIT_EXPIRED":
+      return "Holding deposit expired";
     default:
       return status ?? "—";
   }
@@ -104,7 +116,10 @@ export function isStickyManualApplicantStatus(status?: string | null) {
   return (
     status === "WITHDRAWN" ||
     status === "REJECTED" ||
-    status === "MORE_INFO_REQUESTED"
+    status === "MORE_INFO_REQUESTED" ||
+    status === "HOLDING_DEPOSIT_PENDING" ||
+    status === "RESERVED" ||
+    status === "HOLDING_DEPOSIT_EXPIRED"
   );
 }
 
@@ -131,6 +146,7 @@ export function getApplicantStatusTone(status?: string | null) {
   switch (status) {
     case "APPROVED":
     case "ACCEPT":
+    case "RESERVED":
       return "border-green-200 bg-green-50 text-green-700";
     case "REFERENCING":
     case "APPLIED":
@@ -139,10 +155,12 @@ export function getApplicantStatusTone(status?: string | null) {
     case "REVIEW":
     case "ACCEPT_WITH_GUARANTOR":
     case "MORE_INFO_REQUESTED":
+    case "HOLDING_DEPOSIT_PENDING":
       return "border-amber-200 bg-amber-50 text-amber-700";
     case "DECLINED":
     case "DECLINE":
     case "REJECTED":
+    case "HOLDING_DEPOSIT_EXPIRED":
       return "border-red-200 bg-red-50 text-red-700";
     case "WITHDRAWN":
       return "border-slate-200 bg-slate-50 text-slate-700";

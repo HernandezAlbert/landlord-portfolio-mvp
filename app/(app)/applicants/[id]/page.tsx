@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import {
-  decisionToApplicantStatus,
   formatApplicantStatus,
   formatMoney,
   getApplicantStatusFromDecision,
@@ -103,6 +102,14 @@ function getWorkflowGuardMessage(code?: string | null) {
       return "Declined status is only allowed when the final decision is Decline.";
     case "referencing-blocked-by-decline":
       return "Referencing status cannot be used when the final decision is already Decline.";
+    case "deposit-requires-accept":
+      return "Holding deposit can only be requested when the final decision is Accept.";
+    case "reserved-requires-accept":
+      return "Reserved status is only allowed when the final decision is Accept.";
+    case "reserved-without-deposit":
+      return "Cannot mark as reserved without first requesting a holding deposit.";
+    case "deposit-expired-requires-deposit":
+      return "Holding deposit can only expire after it has first been requested.";
     default:
       return null;
   }
@@ -110,9 +117,10 @@ function getWorkflowGuardMessage(code?: string | null) {
 
 function getWorkflowGuardCode(args: {
   requestedStatus: string;
+  currentStatus?: string | null;
   effectiveDecision: string;
 }) {
-  const { requestedStatus, effectiveDecision } = args;
+  const { requestedStatus, currentStatus, effectiveDecision } = args;
 
   if (requestedStatus === "APPROVED" && effectiveDecision !== "ACCEPT") {
     return "approved-requires-accept";
@@ -124,6 +132,30 @@ function getWorkflowGuardCode(args: {
 
   if (requestedStatus === "REFERENCING" && effectiveDecision === "DECLINE") {
     return "referencing-blocked-by-decline";
+  }
+
+  if (requestedStatus === "HOLDING_DEPOSIT_PENDING" && effectiveDecision !== "ACCEPT") {
+    return "deposit-requires-accept";
+  }
+
+  if (requestedStatus === "RESERVED" && effectiveDecision !== "ACCEPT") {
+    return "reserved-requires-accept";
+  }
+
+  if (
+    requestedStatus === "RESERVED" &&
+    currentStatus !== "HOLDING_DEPOSIT_PENDING" &&
+    currentStatus !== "RESERVED"
+  ) {
+    return "reserved-without-deposit";
+  }
+
+  if (
+    requestedStatus === "HOLDING_DEPOSIT_EXPIRED" &&
+    currentStatus !== "HOLDING_DEPOSIT_PENDING" &&
+    currentStatus !== "HOLDING_DEPOSIT_EXPIRED"
+  ) {
+    return "deposit-expired-requires-deposit";
   }
 
   return null;
@@ -144,7 +176,10 @@ export default async function ApplicantDetailPage({
   const guardStatus = typeof qs.guard === "string" ? qs.guard : "";
   const guardMessage = getWorkflowGuardMessage(guardStatus);
   const toastCode = typeof qs.toast === "string" ? qs.toast : "";
-  const toastMessage = toastCode === "guarantor-deleted" ? "Guarantor deleted." : null;
+  const toastMessage =
+    toastCode === "guarantor-deleted"
+      ? "Guarantor deleted."
+      : null;
 
   const applicant = await prisma.applicant.findUnique({
     where: { id },
@@ -178,6 +213,9 @@ export default async function ApplicantDetailPage({
       "REJECTED",
       "MORE_INFO_REQUESTED",
       "WITHDRAWN",
+      "HOLDING_DEPOSIT_PENDING",
+      "RESERVED",
+      "HOLDING_DEPOSIT_EXPIRED",
     ]);
 
     const requestedStatus =
@@ -241,6 +279,7 @@ export default async function ApplicantDetailPage({
 
     const workflowGuardCode = getWorkflowGuardCode({
       requestedStatus,
+      currentStatus: safeApplicant.status,
       effectiveDecision: currentEffectiveDecision,
     });
 
@@ -272,10 +311,7 @@ export default async function ApplicantDetailPage({
     redirect(`/applicants/${safeApplicant.id}?saved=1`);
   }
 
-  const rentMonthly = await getRent(
-    applicant.propertyId,
-    applicant.property?.advertisedRentMonthly ?? null,
-  );
+  const rentMonthly = await getRent(applicant.propertyId, applicant.property?.advertisedRentMonthly ?? null);
   const incomeBreakdown = getIncomeBreakdownFromRawPayload(applicant.importRawPayload);
   const effectiveIncome = incomeBreakdown.totalMonthlyPence ?? applicant.monthlyIncome;
 
@@ -332,14 +368,11 @@ export default async function ApplicantDetailPage({
   return (
     <div className="space-y-6">
       <ToastBridge message={toastMessage} variant="success" />
-
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">{applicant.fullName}</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {applicant.property?.name ?? "No property linked"}
-            </p>
+            <p className="mt-1 text-sm text-slate-500">{applicant.property?.name ?? "No property linked"}</p>
             <p className="mt-1 text-xs text-slate-400">
               Submitted: {fmtDate(applicant.importSubmittedAt ?? applicant.createdAt)}
             </p>
@@ -378,10 +411,7 @@ export default async function ApplicantDetailPage({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href="/applicants"
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
-          >
+          <Link href="/applicants" className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">
             Back to applicants
           </Link>
           {applicant.email ? (
@@ -425,7 +455,7 @@ export default async function ApplicantDetailPage({
           {guardMessage}
         </div>
       ) : null}
-
+      
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Affordability</h2>
@@ -439,29 +469,21 @@ export default async function ApplicantDetailPage({
             <div className="flex items-center justify-between">
               <span>Additional monthly income</span>
               <span className="font-medium">
-                {incomeBreakdown.additionalMonthlyPence
-                  ? formatMoney(incomeBreakdown.additionalMonthlyPence)
-                  : "—"}
+                {incomeBreakdown.additionalMonthlyPence ? formatMoney(incomeBreakdown.additionalMonthlyPence) : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span>Total income used</span>
-              <span className="font-medium">
-                {effectiveIncome ? formatMoney(effectiveIncome) : "Not provided"}
-              </span>
+              <span className="font-medium">{effectiveIncome ? formatMoney(effectiveIncome) : "Not provided"}</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Rent used</span>
-              <span className="font-medium">
-                {result.rentUsed ? formatMoney(result.rentUsed) : "Not set"}
-              </span>
+              <span className="font-medium">{result.rentUsed ? formatMoney(result.rentUsed) : "Not set"}</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Ratio</span>
               <span className="font-medium">
-                {result.affordabilityRatio !== null
-                  ? `${result.affordabilityRatio.toFixed(2)}x`
-                  : "Cannot assess"}
+                {result.affordabilityRatio !== null ? `${result.affordabilityRatio.toFixed(2)}x` : "Cannot assess"}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -481,7 +503,7 @@ export default async function ApplicantDetailPage({
             </div>
           </div>
         </div>
-
+        
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Screening</h2>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
@@ -513,7 +535,7 @@ export default async function ApplicantDetailPage({
             </div>
             <div className="flex items-center justify-between">
               <span>Derived status</span>
-              <span className="font-medium">{derivedStatus}</span>
+              <span className="font-medium">{formatApplicantStatus(derivedStatus)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Score</span>
@@ -530,9 +552,7 @@ export default async function ApplicantDetailPage({
                 <div className="border-t border-slate-100 pt-2" />
                 <div className="text-xs text-slate-500">Manual override active</div>
                 {applicant.referencing.manualDecisionReason ? (
-                  <div className="text-sm text-slate-600">
-                    {applicant.referencing.manualDecisionReason}
-                  </div>
+                  <div className="text-sm text-slate-600">{applicant.referencing.manualDecisionReason}</div>
                 ) : null}
               </>
             ) : null}
@@ -541,16 +561,16 @@ export default async function ApplicantDetailPage({
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-2 text-lg font-semibold">Guarantor</h2>
+          <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
 
-        <GuarantorSummaryCard
-          applicantId={applicant.id}
-          guarantors={applicant.guarantors}
-          guarantorRequired={applicant.guarantorRequired}
-          guarantorAvailable={applicant.guarantorAvailable}
-          guarantorOutcome={applicant.guarantorOutcome}
-        />
-      </div>
+          <GuarantorSummaryCard
+            applicantId={applicant.id}
+            guarantors={applicant.guarantors}
+            guarantorRequired={applicant.guarantorRequired}
+            guarantorAvailable={applicant.guarantorAvailable}
+            guarantorOutcome={applicant.guarantorOutcome}
+          />
+        </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -585,6 +605,9 @@ export default async function ApplicantDetailPage({
                 <option value="APPLIED">Applied</option>
                 <option value="REFERENCING">Referencing</option>
                 <option value="APPROVED">Approved</option>
+                <option value="HOLDING_DEPOSIT_PENDING">Holding deposit requested</option>
+                <option value="RESERVED">Reserved (deposit received)</option>
+                <option value="HOLDING_DEPOSIT_EXPIRED">Holding deposit expired</option>
                 <option value="DECLINED">Declined</option>
                 <option value="REJECTED">Applicant rejected</option>
                 <option value="MORE_INFO_REQUESTED">Requested more info / guarantor</option>
@@ -670,9 +693,7 @@ export default async function ApplicantDetailPage({
           </form>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-sm font-medium text-slate-800">
-              Outstanding document request summary
-            </div>
+            <div className="text-sm font-medium text-slate-800">Outstanding document request summary</div>
             <div className="mt-2 text-sm text-slate-600">
               {missingDocEmail.missingItems.length ? (
                 <ul className="list-disc space-y-1 pl-5">
@@ -692,9 +713,7 @@ export default async function ApplicantDetailPage({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Uploaded reference materials</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              This is the upload list and dropdown-driven classification that was missing.
-            </p>
+            <p className="mt-1 text-sm text-slate-500">This is the upload list and dropdown-driven classification that was missing.</p>
           </div>
           <div className="text-sm text-slate-500">{uploadedDocs.length} file(s)</div>
         </div>
@@ -857,6 +876,6 @@ export default async function ApplicantDetailPage({
         ) : null}
         <MessageTemplatesPanel drafts={drafts} applicantId={applicant.id} disabled={!applicant.email} />
       </div>
-    </div>
+    </div>    
   );
 }
