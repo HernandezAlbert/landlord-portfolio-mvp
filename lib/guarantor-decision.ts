@@ -12,7 +12,7 @@ export function getDecisionWithGuarantor(args: {
   }
 
   if (guarantorOutcome === "FAILED") {
-    return "REJECT";
+    return "DECLINE";
   }
 
   return "REVIEW";

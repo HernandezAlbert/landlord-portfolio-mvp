@@ -40,6 +40,9 @@ export function decisionToApplicantStatus(
   switch (decision) {
     case "ACCEPT":
       return "APPROVED";
+    case "ACCEPT_WITH_GUARANTOR":
+    case "REVIEW":
+      return "REFERENCING";
     case "DECLINE":
       return "DECLINED";
     default:
@@ -56,6 +59,7 @@ function normalizeDecision(value?: string | null): ApplicantDecision | null {
   ) {
     return value;
   }
+
   return null;
 }
 
@@ -71,6 +75,7 @@ export function normalizeApplicantStatus(value?: string | null): ApplicantStatus
   ) {
     return value;
   }
+
   return null;
 }
 
@@ -96,7 +101,11 @@ export function formatApplicantStatus(status?: string | null) {
 }
 
 export function isStickyManualApplicantStatus(status?: string | null) {
-  return status === "WITHDRAWN" || status === "REJECTED" || status === "MORE_INFO_REQUESTED";
+  return (
+    status === "WITHDRAWN" ||
+    status === "REJECTED" ||
+    status === "MORE_INFO_REQUESTED"
+  );
 }
 
 export function getApplicantStatusFromDecision(input: {
@@ -121,9 +130,9 @@ export function getEffectiveDecision(input: {
 export function getApplicantStatusTone(status?: string | null) {
   switch (status) {
     case "APPROVED":
-    case "REFERENCING":
     case "ACCEPT":
       return "border-green-200 bg-green-50 text-green-700";
+    case "REFERENCING":
     case "APPLIED":
     case "NEW":
     case "SCREENING":

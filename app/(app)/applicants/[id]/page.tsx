@@ -4,12 +4,15 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import {
   decisionToApplicantStatus,
+  formatApplicantStatus,
   formatMoney,
+  getApplicantStatusFromDecision,
   getApplicantStatusTone,
   getDecisionTone,
   getEffectiveDecision,
   getScreeningLabel,
   getScreeningTone,
+  normalizeApplicantStatus,
   referencingCompletionPercentage,
 } from "@/lib/applicants";
 import { computeReferencingScore } from "@/lib/referencing";
@@ -135,8 +138,20 @@ export default async function ApplicantDetailPage({
     const statusRaw = String(formData.get("status") ?? safeApplicant.status).trim();
     const manualDecisionReason = String(formData.get("manualDecisionReason") ?? "").trim();
 
-    const allowedStatuses = new Set(["APPLIED", "APPROVED", "DECLINED", "WITHDRAWN"]);
-    const nextStatus = allowedStatuses.has(statusRaw) ? statusRaw : safeApplicant.status;
+    const allowedStatuses = new Set([
+    "APPLIED",
+    "REFERENCING",
+    "APPROVED",
+    "DECLINED",
+    "REJECTED",
+    "MORE_INFO_REQUESTED",
+    "WITHDRAWN",
+  ]);
+
+  const nextStatus =
+    normalizeApplicantStatus(statusRaw) && allowedStatuses.has(statusRaw)
+      ? (statusRaw as typeof safeApplicant.status)
+      : safeApplicant.status;
 
     const manualDecision =
       manualDecisionRaw === "ACCEPT" ||
@@ -202,12 +217,14 @@ const baseDecision = getEffectiveDecision({
 
 const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
   currentDecision: baseDecision,
-  guarantorRequired: applicant.guarantorRequired,
+  guarantorRequired: applicant.referencing?.guarantorRequired,
   guarantorOutcome: applicant.guarantorOutcome,
 }) as typeof baseDecision;
 
-  const derivedStatus =
-    applicant.status === "WITHDRAWN" ? "WITHDRAWN" : decisionToApplicantStatus(effectiveDecision);
+  const derivedStatus = getApplicantStatusFromDecision({
+  decision: effectiveDecision,
+  currentStatus: applicant.status,
+});
 
   const uploadedDocs = await getUploadedApplicantDocs(applicant.id);
   const completion = referencingCompletionPercentage(applicant.referencing);
@@ -241,7 +258,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
                 applicant.status,
               )}`}
             >
-              Workflow: {applicant.status}
+              Workflow: {formatApplicantStatus(applicant.status)}
             </span>
             <span
               className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${getDecisionTone(
@@ -455,8 +472,11 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
                 className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
               >
                 <option value="APPLIED">Applied</option>
+                <option value="REFERENCING">Referencing</option>
                 <option value="APPROVED">Approved</option>
                 <option value="DECLINED">Declined</option>
+                <option value="REJECTED">Applicant rejected</option>
+                <option value="MORE_INFO_REQUESTED">Requested more info / guarantor</option>
                 <option value="WITHDRAWN">Withdrawn</option>
               </select>
             </label>
