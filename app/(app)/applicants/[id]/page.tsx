@@ -95,6 +95,40 @@ function importedFieldEntries(rawPayload: unknown) {
     .map(([key, value]) => [prettyKey(key), String(value ?? "").trim()] as [string, string]);
 }
 
+function getWorkflowGuardMessage(code?: string | null) {
+  switch (code) {
+    case "approved-requires-accept":
+      return "Approved status is only allowed when the final decision is Accept.";
+    case "declined-requires-decline":
+      return "Declined status is only allowed when the final decision is Decline.";
+    case "referencing-blocked-by-decline":
+      return "Referencing status cannot be used when the final decision is already Decline.";
+    default:
+      return null;
+  }
+}
+
+function getWorkflowGuardCode(args: {
+  requestedStatus: string;
+  effectiveDecision: string;
+}) {
+  const { requestedStatus, effectiveDecision } = args;
+
+  if (requestedStatus === "APPROVED" && effectiveDecision !== "ACCEPT") {
+    return "approved-requires-accept";
+  }
+
+  if (requestedStatus === "DECLINED" && effectiveDecision !== "DECLINE") {
+    return "declined-requires-decline";
+  }
+
+  if (requestedStatus === "REFERENCING" && effectiveDecision === "DECLINE") {
+    return "referencing-blocked-by-decline";
+  }
+
+  return null;
+}
+
 export default async function ApplicantDetailPage({
   params,
   searchParams,
@@ -107,24 +141,22 @@ export default async function ApplicantDetailPage({
   const uploadStatus = typeof qs.upload === "string" ? qs.upload : "";
   const deleteDocStatus = typeof qs.deleteDoc === "string" ? qs.deleteDoc : "";
   const savedStatus = typeof qs.saved === "string" ? qs.saved : "";
+  const guardStatus = typeof qs.guard === "string" ? qs.guard : "";
+  const guardMessage = getWorkflowGuardMessage(guardStatus);
   const toastCode = typeof qs.toast === "string" ? qs.toast : "";
-  const toastMessage =
-    toastCode === "guarantor-deleted"
-      ? "Guarantor deleted."
-      : null;
+  const toastMessage = toastCode === "guarantor-deleted" ? "Guarantor deleted." : null;
+
   const applicant = await prisma.applicant.findUnique({
-  where: { id },
-  include: {
-    property: true,
-    referencing: true,
-    guarantors: {
-      where: { archivedAt: null },
-      orderBy: { createdAt: "desc" },
+    where: { id },
+    include: {
+      property: true,
+      referencing: true,
+      guarantors: {
+        where: { archivedAt: null },
+        orderBy: { createdAt: "desc" },
+      },
     },
-  },
-});
-
-
+  });
 
   if (!applicant) notFound();
 
@@ -139,19 +171,19 @@ export default async function ApplicantDetailPage({
     const manualDecisionReason = String(formData.get("manualDecisionReason") ?? "").trim();
 
     const allowedStatuses = new Set([
-    "APPLIED",
-    "REFERENCING",
-    "APPROVED",
-    "DECLINED",
-    "REJECTED",
-    "MORE_INFO_REQUESTED",
-    "WITHDRAWN",
-  ]);
+      "APPLIED",
+      "REFERENCING",
+      "APPROVED",
+      "DECLINED",
+      "REJECTED",
+      "MORE_INFO_REQUESTED",
+      "WITHDRAWN",
+    ]);
 
-  const nextStatus =
-    normalizeApplicantStatus(statusRaw) && allowedStatuses.has(statusRaw)
-      ? (statusRaw as typeof safeApplicant.status)
-      : safeApplicant.status;
+    const requestedStatus =
+      normalizeApplicantStatus(statusRaw) && allowedStatuses.has(statusRaw)
+        ? (statusRaw as typeof safeApplicant.status)
+        : safeApplicant.status;
 
     const manualDecision =
       manualDecisionRaw === "ACCEPT" ||
@@ -161,11 +193,66 @@ export default async function ApplicantDetailPage({
         ? manualDecisionRaw
         : null;
 
+    const currentRentMonthly = await getRent(
+      safeApplicant.propertyId,
+      safeApplicant.property?.advertisedRentMonthly ?? null,
+    );
+
+    const currentIncomeBreakdown = getIncomeBreakdownFromRawPayload(
+      safeApplicant.importRawPayload,
+    );
+    const currentEffectiveIncome =
+      currentIncomeBreakdown.totalMonthlyPence ?? safeApplicant.monthlyIncome;
+
+    const currentResult = computeReferencingScore({
+      monthlyIncome: currentEffectiveIncome,
+      rentMonthly: currentRentMonthly,
+      employmentStatus: safeApplicant.employmentStatus,
+      idProvided: safeApplicant.referencing?.idProvided,
+      rightToRentChecked: safeApplicant.referencing?.rightToRentChecked,
+      payslipsProvided: safeApplicant.referencing?.payslipsProvided,
+      bankStatementsProvided: safeApplicant.referencing?.bankStatementsProvided,
+      employmentReference: safeApplicant.referencing?.employmentReference,
+      landlordReference: safeApplicant.referencing?.landlordReference,
+      incomeVerified: safeApplicant.referencing?.incomeVerified,
+      creditCheckPassed: safeApplicant.referencing?.creditCheckPassed,
+      guarantorRequired: safeApplicant.referencing?.guarantorRequired,
+      guarantorProvided:
+        safeApplicant.referencing?.guarantorProvided ??
+        safeApplicant.canProvideGuarantor ??
+        false,
+      petInsuranceProvided: safeApplicant.referencing?.petInsuranceProvided,
+      hasPets: safeApplicant.hasPets,
+      savingsBufferMonths: safeApplicant.savingsBufferMonths,
+    });
+
+    const currentSystemDecision = currentResult.decision;
+
+    const currentBaseDecision = getEffectiveDecision({
+      computedDecision: currentSystemDecision,
+      manualDecision,
+    });
+
+    const currentEffectiveDecision: typeof currentBaseDecision = getDecisionWithGuarantor({
+      currentDecision: currentBaseDecision,
+      guarantorRequired: safeApplicant.referencing?.guarantorRequired,
+      guarantorOutcome: safeApplicant.guarantorOutcome,
+    }) as typeof currentBaseDecision;
+
+    const workflowGuardCode = getWorkflowGuardCode({
+      requestedStatus,
+      effectiveDecision: currentEffectiveDecision,
+    });
+
+    if (workflowGuardCode) {
+      redirect(`/applicants/${safeApplicant.id}?guard=${workflowGuardCode}`);
+    }
+
     await prisma.applicant.update({
       where: { id: safeApplicant.id },
       data: {
         notes: notes || null,
-        status: nextStatus as typeof safeApplicant.status,
+        status: requestedStatus as typeof safeApplicant.status,
         referencing: {
           upsert: {
             create: {
@@ -185,7 +272,10 @@ export default async function ApplicantDetailPage({
     redirect(`/applicants/${safeApplicant.id}?saved=1`);
   }
 
-  const rentMonthly = await getRent(applicant.propertyId, applicant.property?.advertisedRentMonthly ?? null);
+  const rentMonthly = await getRent(
+    applicant.propertyId,
+    applicant.property?.advertisedRentMonthly ?? null,
+  );
   const incomeBreakdown = getIncomeBreakdownFromRawPayload(applicant.importRawPayload);
   const effectiveIncome = incomeBreakdown.totalMonthlyPence ?? applicant.monthlyIncome;
 
@@ -210,21 +300,21 @@ export default async function ApplicantDetailPage({
 
   const systemDecision = result.decision;
 
-const baseDecision = getEffectiveDecision({
-  computedDecision: systemDecision,
-  manualDecision: applicant.referencing?.manualDecision ?? null,
-});
+  const baseDecision = getEffectiveDecision({
+    computedDecision: systemDecision,
+    manualDecision: applicant.referencing?.manualDecision ?? null,
+  });
 
-const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
-  currentDecision: baseDecision,
-  guarantorRequired: applicant.referencing?.guarantorRequired,
-  guarantorOutcome: applicant.guarantorOutcome,
-}) as typeof baseDecision;
+  const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
+    currentDecision: baseDecision,
+    guarantorRequired: applicant.referencing?.guarantorRequired,
+    guarantorOutcome: applicant.guarantorOutcome,
+  }) as typeof baseDecision;
 
   const derivedStatus = getApplicantStatusFromDecision({
-  decision: effectiveDecision,
-  currentStatus: applicant.status,
-});
+    decision: effectiveDecision,
+    currentStatus: applicant.status,
+  });
 
   const uploadedDocs = await getUploadedApplicantDocs(applicant.id);
   const completion = referencingCompletionPercentage(applicant.referencing);
@@ -242,11 +332,14 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
   return (
     <div className="space-y-6">
       <ToastBridge message={toastMessage} variant="success" />
+
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">{applicant.fullName}</h1>
-            <p className="mt-1 text-sm text-slate-500">{applicant.property?.name ?? "No property linked"}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {applicant.property?.name ?? "No property linked"}
+            </p>
             <p className="mt-1 text-xs text-slate-400">
               Submitted: {fmtDate(applicant.importSubmittedAt ?? applicant.createdAt)}
             </p>
@@ -276,16 +369,19 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
             </span>
 
             <Link
-            href={`/guarantors/new?applicantId=${applicant.id}`}
-            className="inline-flex items-center rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
-          >
-            Add Guarantor
-          </Link>
+              href={`/guarantors/new?applicantId=${applicant.id}`}
+              className="inline-flex items-center rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+            >
+              Add Guarantor
+            </Link>
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link href="/applicants" className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">
+          <Link
+            href="/applicants"
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+          >
             Back to applicants
           </Link>
           {applicant.email ? (
@@ -324,7 +420,12 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
           No document was selected for deletion.
         </div>
       ) : null}
-      
+      {guardMessage ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {guardMessage}
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Affordability</h2>
@@ -338,21 +439,29 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
             <div className="flex items-center justify-between">
               <span>Additional monthly income</span>
               <span className="font-medium">
-                {incomeBreakdown.additionalMonthlyPence ? formatMoney(incomeBreakdown.additionalMonthlyPence) : "—"}
+                {incomeBreakdown.additionalMonthlyPence
+                  ? formatMoney(incomeBreakdown.additionalMonthlyPence)
+                  : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span>Total income used</span>
-              <span className="font-medium">{effectiveIncome ? formatMoney(effectiveIncome) : "Not provided"}</span>
+              <span className="font-medium">
+                {effectiveIncome ? formatMoney(effectiveIncome) : "Not provided"}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span>Rent used</span>
-              <span className="font-medium">{result.rentUsed ? formatMoney(result.rentUsed) : "Not set"}</span>
+              <span className="font-medium">
+                {result.rentUsed ? formatMoney(result.rentUsed) : "Not set"}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span>Ratio</span>
               <span className="font-medium">
-                {result.affordabilityRatio !== null ? `${result.affordabilityRatio.toFixed(2)}x` : "Cannot assess"}
+                {result.affordabilityRatio !== null
+                  ? `${result.affordabilityRatio.toFixed(2)}x`
+                  : "Cannot assess"}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -372,7 +481,7 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
             </div>
           </div>
         </div>
-        
+
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Screening</h2>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
@@ -421,7 +530,9 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
                 <div className="border-t border-slate-100 pt-2" />
                 <div className="text-xs text-slate-500">Manual override active</div>
                 {applicant.referencing.manualDecisionReason ? (
-                  <div className="text-sm text-slate-600">{applicant.referencing.manualDecisionReason}</div>
+                  <div className="text-sm text-slate-600">
+                    {applicant.referencing.manualDecisionReason}
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -430,16 +541,16 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
+        <h2 className="mb-2 text-lg font-semibold">Guarantor</h2>
 
-          <GuarantorSummaryCard
-            applicantId={applicant.id}
-            guarantors={applicant.guarantors}
-            guarantorRequired={applicant.guarantorRequired}
-            guarantorAvailable={applicant.guarantorAvailable}
-            guarantorOutcome={applicant.guarantorOutcome}
-          />
-        </div>
+        <GuarantorSummaryCard
+          applicantId={applicant.id}
+          guarantors={applicant.guarantors}
+          guarantorRequired={applicant.guarantorRequired}
+          guarantorAvailable={applicant.guarantorAvailable}
+          guarantorOutcome={applicant.guarantorOutcome}
+        />
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -559,7 +670,9 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
           </form>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-sm font-medium text-slate-800">Outstanding document request summary</div>
+            <div className="text-sm font-medium text-slate-800">
+              Outstanding document request summary
+            </div>
             <div className="mt-2 text-sm text-slate-600">
               {missingDocEmail.missingItems.length ? (
                 <ul className="list-disc space-y-1 pl-5">
@@ -579,7 +692,9 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Uploaded reference materials</h2>
-            <p className="mt-1 text-sm text-slate-500">This is the upload list and dropdown-driven classification that was missing.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              This is the upload list and dropdown-driven classification that was missing.
+            </p>
           </div>
           <div className="text-sm text-slate-500">{uploadedDocs.length} file(s)</div>
         </div>
@@ -742,9 +857,6 @@ const effectiveDecision: typeof baseDecision = getDecisionWithGuarantor({
         ) : null}
         <MessageTemplatesPanel drafts={drafts} applicantId={applicant.id} disabled={!applicant.email} />
       </div>
-
-    
-
-    </div>    
+    </div>
   );
 }
