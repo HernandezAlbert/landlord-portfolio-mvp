@@ -110,17 +110,24 @@ function getWorkflowGuardMessage(code?: string | null) {
       return "Cannot mark as reserved without first requesting a holding deposit.";
     case "deposit-expired-requires-deposit":
       return "Holding deposit can only expire after it has first been requested.";
+    case "property-already-reserved":
+      return "This property is already reserved by another applicant.";
     default:
       return null;
   }
 }
 
-function getWorkflowGuardCode(args: {
+async function getWorkflowGuardCode(args: {
   requestedStatus: string;
   currentStatus?: string | null;
   effectiveDecision: string;
+  applicantId: string;
+  propertyId?: string | null;
 }) {
-  const { requestedStatus, currentStatus, effectiveDecision } = args;
+  const { requestedStatus, currentStatus, effectiveDecision, applicantId, propertyId } = args;
+
+  const isDecisionEligibleForDeposit =
+    effectiveDecision === "ACCEPT" || effectiveDecision === "REVIEW";
 
   if (requestedStatus === "APPROVED" && effectiveDecision !== "ACCEPT") {
     return "approved-requires-accept";
@@ -134,11 +141,13 @@ function getWorkflowGuardCode(args: {
     return "referencing-blocked-by-decline";
   }
 
-  if (requestedStatus === "HOLDING_DEPOSIT_PENDING" && effectiveDecision !== "ACCEPT") {
+  // ✅ UPDATED: allow during REVIEW or ACCEPT
+  if (requestedStatus === "HOLDING_DEPOSIT_PENDING" && !isDecisionEligibleForDeposit) {
     return "deposit-requires-accept";
   }
 
-  if (requestedStatus === "RESERVED" && effectiveDecision !== "ACCEPT") {
+  // ✅ UPDATED: allow during REVIEW or ACCEPT
+  if (requestedStatus === "RESERVED" && !isDecisionEligibleForDeposit) {
     return "reserved-requires-accept";
   }
 
@@ -156,6 +165,21 @@ function getWorkflowGuardCode(args: {
     currentStatus !== "HOLDING_DEPOSIT_EXPIRED"
   ) {
     return "deposit-expired-requires-deposit";
+  }
+
+  // 🔒 double booking protection (unchanged)
+  if (requestedStatus === "RESERVED" && propertyId) {
+    const existingReserved = await prisma.applicant.findFirst({
+      where: {
+        propertyId,
+        id: { not: applicantId },
+        status: "RESERVED",
+      },
+    });
+
+    if (existingReserved) {
+      return "property-already-reserved";
+    }
   }
 
   return null;
@@ -277,11 +301,13 @@ export default async function ApplicantDetailPage({
       guarantorOutcome: safeApplicant.guarantorOutcome,
     }) as typeof currentBaseDecision;
 
-    const workflowGuardCode = getWorkflowGuardCode({
-      requestedStatus,
-      currentStatus: safeApplicant.status,
-      effectiveDecision: currentEffectiveDecision,
-    });
+    const workflowGuardCode = await getWorkflowGuardCode({
+    requestedStatus,
+    currentStatus: safeApplicant.status,
+    effectiveDecision: currentEffectiveDecision,
+    applicantId: safeApplicant.id,
+    propertyId: safeApplicant.propertyId,
+  });
 
     if (workflowGuardCode) {
       redirect(`/applicants/${safeApplicant.id}?guard=${workflowGuardCode}`);
