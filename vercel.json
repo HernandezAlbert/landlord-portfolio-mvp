@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/google-form-sync",
-      "schedule": "0 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/daily",
