@@ -1,66 +1,138 @@
 import { buildWeeklyActionList } from "@/lib/actions";
-import { getTotalArrears } from "@/lib/arrears";
+import { getTenancyArrears, getTotalArrears } from "@/lib/arrears";
 import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/email";
-import { buildMissingDocumentEmail, getUploadedApplicantDocs } from "@/lib/applicant-documents";
+import {
+  buildMissingDocumentEmail,
+  getUploadedApplicantDocs,
+} from "@/lib/applicant-documents";
 
 export async function buildLandlordDigest(asOf = new Date()) {
   const soon = new Date(asOf);
   soon.setDate(soon.getDate() + 30);
 
-  const [actions, totalArrears, tenancies, followUps, overduePayments, complianceSoon, insuranceSoon, applicants] =
-    await Promise.all([
-      buildWeeklyActionList(asOf),
-      getTotalArrears(asOf),
-      prisma.tenancy.findMany({
-        where: { isActive: true, deletedAt: null },
-        select: { rentMonthly: true },
-      }),
-      prisma.contactLog.findMany({
-        where: { deletedAt: null, nextFollowUp: { not: null, lte: asOf } },
-        orderBy: { nextFollowUp: "asc" },
-        take: 10,
-      }),
-      prisma.payment.findMany({
-        where: { deletedAt: null, dueDate: { lte: asOf } },
-        include: {
-          tenancy: {
-            include: {
-              property: true,
-              tenants: { include: { tenant: true } },
+  const [
+    actions,
+    totalArrears,
+    tenancies,
+    rawFollowUps,
+    overduePayments,
+    complianceSoon,
+    insuranceSoon,
+    applicants,
+    rightToRentSoon,
+  ] = await Promise.all([
+    buildWeeklyActionList(asOf),
+    getTotalArrears(asOf),
+    prisma.tenancy.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { rentMonthly: true },
+    }),
+
+    prisma.contactLog.findMany({
+      where: { deletedAt: null, nextFollowUp: { not: null, lte: asOf } },
+      orderBy: { nextFollowUp: "asc" },
+      take: 20,
+      include: {
+        tenancy: {
+          select: {
+            id: true,
+            isActive: true,
+            deletedAt: true,
+          },
+        },
+      },
+    }),
+
+    prisma.payment.findMany({
+      where: {
+        deletedAt: null,
+        dueDate: { lte: asOf },
+        tenancy: {
+          isActive: true,
+          deletedAt: null,
+        },
+      },
+      include: {
+        tenancy: {
+          include: {
+            property: true,
+            tenants: {
+              where: {
+                tenant: {
+                  deletedAt: null,
+                },
+              },
+              include: {
+                tenant: true,
+              },
             },
           },
         },
-        orderBy: { dueDate: "asc" },
-        take: 30,
-      }),
-      prisma.complianceItem.findMany({
-        where: { deletedAt: null, expiresOn: { not: null, lte: soon } },
-        include: { property: true },
-        orderBy: { expiresOn: "asc" },
-        take: 12,
-      }),
-      prisma.insurancePolicy.findMany({
-        where: { deletedAt: null, renewalDate: { not: null, lte: soon } },
-        include: { property: true },
-        orderBy: { renewalDate: "asc" },
-        take: 12,
-      }),
-      prisma.applicant.findMany({
-        where: {
-          deletedAt: null,
-          status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] },
+      },
+      orderBy: { dueDate: "asc" },
+      take: 30,
+    }),
+
+    prisma.complianceItem.findMany({
+      where: { deletedAt: null, expiresOn: { not: null, lte: soon } },
+      include: { property: true },
+      orderBy: { expiresOn: "asc" },
+      take: 12,
+    }),
+
+    prisma.insurancePolicy.findMany({
+      where: { deletedAt: null, renewalDate: { not: null, lte: soon } },
+      include: { property: true },
+      orderBy: { renewalDate: "asc" },
+      take: 12,
+    }),
+
+    prisma.applicant.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] },
+      },
+      include: { property: true, referencing: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+
+    // 🟢 NEW — RTR
+    prisma.tenant.findMany({
+      where: {
+        deletedAt: null,
+        rightToRentExpiresOn: {
+          not: null,
+          lte: soon,
         },
-        include: { property: true, referencing: true },
-        orderBy: { createdAt: "desc" },
-        take: 20,
-      }),
-    ]);
+      },
+      orderBy: { rightToRentExpiresOn: "asc" },
+      take: 12,
+    }),
+  ]);
+
+  // 🔴 FILTER FOLLOW UPS (remove stale arrears ones)
+  const followUps: typeof rawFollowUps = [];
+
+  for (const f of rawFollowUps) {
+    if (!f.tenancy || !f.tenancy.isActive || f.tenancy.deletedAt) continue;
+
+    const subject = (f.subject || "").toLowerCase();
+
+    if (subject.includes("arrears")) {
+      const arrears = await getTenancyArrears(f.tenancy.id, asOf);
+      if (arrears <= 0) continue;
+    }
+
+    followUps.push(f);
+  }
+
+  const finalFollowUps = followUps.slice(0, 10);
 
   const monthlyRent = tenancies.reduce((s, t) => s + t.rentMonthly, 0);
   const redCount = actions.filter((a) => a.rag === "RED").length;
   const top = actions.slice(0, 20);
-  const rightToRentSoon = actions.filter((a) => a.category === "TENANT").slice(0, 10);
 
   const overduePaymentLines = overduePayments
     .filter((p) => p.amountPaid < p.amountDue)
@@ -88,7 +160,11 @@ export async function buildLandlordDigest(asOf = new Date()) {
     .filter((row) => row.missingItems.length > 0)
     .slice(0, 10);
 
-  const text = [
+  // =========================
+  // TEXT OUTPUT
+  // =========================
+
+  const lines = [
     `Landlord Portfolio digest (${asOf.toISOString().slice(0, 10)})`,
     "",
     `Monthly rent: ${formatMoney(monthlyRent)}`,
@@ -96,8 +172,8 @@ export async function buildLandlordDigest(asOf = new Date()) {
     `Red items: ${redCount}`,
     "",
     "Follow-ups due:",
-    ...(followUps.length
-      ? followUps.map(
+    ...(finalFollowUps.length
+      ? finalFollowUps.map(
           (f) =>
             `- ${f.type}${f.subject ? `: ${f.subject}` : ""} (follow-up ${f.nextFollowUp!.toISOString().slice(0, 10)})`,
         )
@@ -107,26 +183,36 @@ export async function buildLandlordDigest(asOf = new Date()) {
     ...(overduePaymentLines.length
       ? overduePaymentLines.map((p) => {
           const outstanding = Math.max(0, p.amountDue - p.amountPaid);
-          const tenants = p.tenancy.tenants.map((tt) => tt.tenant.fullName).join(", ") || "No tenants";
+          const tenants = p.tenancy.tenants.length
+            ? p.tenancy.tenants.map((tt) => tt.tenant.fullName).join(", ")
+            : "No active tenants";
+
           return `- ${p.tenancy.property.name} / ${tenants}: ${formatMoney(outstanding)} outstanding (due ${p.dueDate.toISOString().slice(0, 10)})`;
         })
       : ["- None"]),
     "",
     "Compliance / insurance due within 30 days:",
     ...(complianceSoon.length
-      ? complianceSoon.map((c) => `- ${c.property.name}: ${c.type} expires ${c.expiresOn?.toISOString().slice(0, 10)}`)
+      ? complianceSoon.map(
+          (c) =>
+            `- ${c.property.name}: ${c.type} expires ${c.expiresOn?.toISOString().slice(0, 10)}`,
+        )
       : ["- No compliance items due soon"]),
     ...(insuranceSoon.length
-      ? insuranceSoon.map((i) => `- ${i.property.name}: insurance renewal ${i.renewalDate?.toISOString().slice(0, 10)}`)
+      ? insuranceSoon.map(
+          (i) =>
+            `- ${i.property.name}: insurance renewal ${i.renewalDate?.toISOString().slice(0, 10)}`,
+        )
       : ["- No insurance renewals due soon"]),
-    "",
-    "Active tenant Right to Rent checks due within 60 days:",
+
+    // 🟢 NEW — RTR in compliance
     ...(rightToRentSoon.length
       ? rightToRentSoon.map(
-          (a) =>
-            `- ${a.subject}: ${a.nextAction}${a.dueDate ? ` (expires ${a.dueDate.toISOString().slice(0, 10)})` : ""}`,
+          (t) =>
+            `- ${t.fullName}: Right to Rent expires ${t.rightToRentExpiresOn!.toISOString().slice(0, 10)}`,
         )
-      : ["- None"]),
+      : []),
+
     "",
     "Applicants missing documents:",
     ...(applicantReminders.length
@@ -139,11 +225,13 @@ export async function buildLandlordDigest(asOf = new Date()) {
     "Top actions:",
     ...top.map(
       (a) =>
-        `- [${a.rag}] ${a.nextAction} — ${a.subject}${a.dueDate ? ` (due ${a.dueDate.toISOString().slice(0, 10)})` : ""}${a.note ? ` — NOTE: ${a.note}` : ""}`,
+        `- [${a.rag}] ${a.nextAction} — ${a.subject}${a.dueDate ? ` (due ${a.dueDate.toISOString().slice(0, 10)})` : ""}`,
     ),
-    "",
-    `Export actions CSV: ${process.env.APP_BASE_URL ? process.env.APP_BASE_URL + "/api/export/actions" : "(set APP_BASE_URL)"}`,
   ].join("\n");
+
+  // =========================
+  // HTML OUTPUT
+  // =========================
 
   const html = `
     <h2>Landlord Portfolio digest (${asOf.toISOString().slice(0, 10)})</h2>
@@ -156,8 +244,8 @@ export async function buildLandlordDigest(asOf = new Date()) {
     <h3>Follow-ups due</h3>
     <ul>
       ${
-        followUps.length
-          ? followUps
+        finalFollowUps.length
+          ? finalFollowUps
               .map(
                 (f) =>
                   `<li>${escapeHtml(f.type)}${f.subject ? `: ${escapeHtml(f.subject)}` : ""} (follow-up ${f.nextFollowUp!.toISOString().slice(0, 10)})</li>`,
@@ -174,8 +262,10 @@ export async function buildLandlordDigest(asOf = new Date()) {
           ? overduePaymentLines
               .map((p) => {
                 const outstanding = Math.max(0, p.amountDue - p.amountPaid);
-                const tenants =
-                  p.tenancy.tenants.map((tt) => tt.tenant.fullName).join(", ") || "No tenants";
+                const tenants = p.tenancy.tenants.length
+                  ? p.tenancy.tenants.map((tt) => tt.tenant.fullName).join(", ")
+                  : "No active tenants";
+
                 return `<li>${escapeHtml(p.tenancy.property.name)} — ${escapeHtml(tenants)} — ${formatMoney(outstanding)} outstanding (due ${p.dueDate.toISOString().slice(0, 10)})</li>`;
               })
               .join("")
@@ -205,35 +295,15 @@ export async function buildLandlordDigest(asOf = new Date()) {
               .join("")
           : "<li>No insurance renewals due soon</li>"
       }
-    </ul>
-
-    <h3>Active tenant Right to Rent checks due within 60 days</h3>
-    <ul>
       ${
         rightToRentSoon.length
           ? rightToRentSoon
               .map(
-                (a) =>
-                  `<li>${escapeHtml(a.subject)} — ${escapeHtml(a.nextAction)}${a.dueDate ? ` (expires ${a.dueDate.toISOString().slice(0, 10)})` : ""}</li>`,
+                (t) =>
+                  `<li>${escapeHtml(t.fullName)} — Right to Rent expires ${t.rightToRentExpiresOn!.toISOString().slice(0, 10)}</li>`,
               )
               .join("")
-          : "<li>None</li>"
-      }
-    </ul>
-
-    <h3>Applicants missing documents</h3>
-    <ul>
-      ${
-        applicantReminders.length
-          ? applicantReminders
-              .map(
-                (row) =>
-                  `<li>${escapeHtml(row.applicant.fullName)}${
-                    row.applicant.property ? ` (${escapeHtml(row.applicant.property.name)})` : ""
-                  } — ${escapeHtml(row.missingItems.join(", "))}</li>`,
-              )
-              .join("")
-          : "<li>None</li>"
+          : ""
       }
     </ul>
 
@@ -242,15 +312,13 @@ export async function buildLandlordDigest(asOf = new Date()) {
       ${top
         .map(
           (a) =>
-            `<li>[${a.rag}] ${escapeHtml(a.nextAction)} — ${escapeHtml(a.subject)}${
-              a.dueDate ? ` (due ${a.dueDate.toISOString().slice(0, 10)})` : ""
-            }${a.note ? ` — ${escapeHtml(a.note)}` : ""}</li>`,
+            `<li>[${a.rag}] ${escapeHtml(a.nextAction)} — ${escapeHtml(a.subject)}</li>`,
         )
         .join("")}
     </ol>
   `.trim();
 
-  return { text, html };
+  return { text: lines, html };
 }
 
 function escapeHtml(value: string) {
