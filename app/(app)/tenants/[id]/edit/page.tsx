@@ -64,7 +64,12 @@ export default async function EditTenantPage({
     <div className="grid max-w-2xl gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-black">Edit tenant</h1>
-        <a href="/tenants">← Back</a>
+        <a
+          href="/tenants"
+          className="btn btn-secondary btn-sm"
+        >
+          ← Back
+        </a>
       </div>
 
       <form action={updateTenant} className="grid gap-3 rounded-xl border bg-white p-4">
@@ -120,8 +125,19 @@ export default async function EditTenantPage({
         </label>
 
         <div className="flex gap-3">
-          <button type="submit">Save</button>
-          <a href="/tenants">Cancel</a>
+          <button
+            type="submit"
+            className="btn btn-primary btn-sm"
+          >
+            Save
+          </button>
+
+          <a
+            href="/tenants"
+            className="btn btn-secondary btn-sm"
+          >
+            Cancel
+          </a>
         </div>
       </form>
 
