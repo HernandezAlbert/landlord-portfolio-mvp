@@ -2,14 +2,26 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 
+function parseOptionalDate(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateInput(value?: Date | null) {
+  if (!value) return "";
+  return value.toISOString().slice(0, 10);
+}
+
 export default async function EditTenantPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-
   const tenant = await prisma.tenant.findUnique({ where: { id } });
+
   if (!tenant) redirect("/tenants");
 
   async function updateTenant(formData: FormData) {
@@ -19,6 +31,7 @@ export default async function EditTenantPage({
     const emailRaw = String(formData.get("email") ?? "").trim();
     const phoneRaw = String(formData.get("phone") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
+    const rightToRentExpiresOn = parseOptionalDate(formData.get("rightToRentExpiresOn"));
 
     if (!fullName) redirect(`/tenants/${id}/edit`);
 
@@ -29,6 +42,7 @@ export default async function EditTenantPage({
         email: emailRaw || null,
         phone: phoneRaw || null,
         notes: notesRaw || null,
+        rightToRentExpiresOn,
       },
     });
 
@@ -84,6 +98,16 @@ export default async function EditTenantPage({
             />
           </label>
         </div>
+
+        <label className="grid gap-1 text-sm">
+          <span>Right to Rent expiry</span>
+          <input
+            name="rightToRentExpiresOn"
+            type="date"
+            defaultValue={formatDateInput(tenant.rightToRentExpiresOn)}
+            className="rounded border px-3 py-2"
+          />
+        </label>
 
         <label className="grid gap-1 text-sm">
           <span>Notes</span>

@@ -8,10 +8,70 @@ function isCurrentTenant(t: { tenancies: { tenancy: { isActive: boolean; deleted
   return t.tenancies.some((tt) => tt.tenancy.deletedAt === null && tt.tenancy.isActive);
 }
 
+function parseOptionalDate(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateInput(value?: Date | null) {
+  if (!value) return "";
+  return value.toISOString().slice(0, 10);
+}
+
+function getRightToRentBadge(expiresOn: Date | null, isCurrent: boolean) {
+  if (!expiresOn) {
+    return {
+      label: "Not set",
+      className: "bg-slate-100 text-slate-600",
+    };
+  }
+
+  if (!isCurrent) {
+    return {
+      label: formatDateInput(expiresOn),
+      className: "bg-slate-100 text-slate-600",
+    };
+  }
+
+  const today = new Date();
+  const start = new Date(today.toISOString().slice(0, 10));
+  const end = new Date(expiresOn.toISOString().slice(0, 10));
+  const diff = Math.floor((end.getTime() - start.getTime()) / 86400000);
+
+  if (diff < 0) {
+    return {
+      label: `Expired ${formatDateInput(expiresOn)}`,
+      className: "bg-red-100 text-red-700",
+    };
+  }
+
+  if (diff <= 60) {
+    return {
+      label: `${formatDateInput(expiresOn)} (${diff}d)`,
+      className: diff <= 30 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700",
+    };
+  }
+
+  return {
+    label: formatDateInput(expiresOn),
+    className: "bg-green-100 text-green-700",
+  };
+}
+
 export default async function TenantsPage() {
   const tenants = await prisma.tenant.findMany({
     where: { deletedAt: null },
-    include: { tenancies: { include: { tenancy: { select: { isActive: true, deletedAt: true } } } } },
+    include: {
+      tenancies: {
+        include: {
+          tenancy: {
+            select: { isActive: true, deletedAt: true },
+          },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -20,20 +80,39 @@ export default async function TenantsPage() {
 
   async function deleteTenant(formData: FormData) {
     "use server";
+
     const tenantId = String(formData.get("tenantId") ?? "");
     if (!tenantId) redirect("/tenants");
-    await prisma.tenant.update({ where: { id: tenantId }, data: { deletedAt: new Date() } });
+
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { deletedAt: new Date() },
+    });
+
     redirect("/tenants");
   }
 
   async function createTenant(formData: FormData) {
     "use server";
+
     const fullName = String(formData.get("fullName") ?? "").trim();
     const emailRaw = String(formData.get("email") ?? "").trim();
     const phoneRaw = String(formData.get("phone") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
+    const rightToRentExpiresOn = parseOptionalDate(formData.get("rightToRentExpiresOn"));
+
     if (!fullName) redirect("/tenants");
-    await prisma.tenant.create({ data: { fullName, email: emailRaw || null, phone: phoneRaw || null, notes: notesRaw || null } });
+
+    await prisma.tenant.create({
+      data: {
+        fullName,
+        email: emailRaw || null,
+        phone: phoneRaw || null,
+        notes: notesRaw || null,
+        rightToRentExpiresOn,
+      },
+    });
+
     redirect("/tenants");
   }
 
@@ -41,6 +120,7 @@ export default async function TenantsPage() {
     return (
       <section className="section-shell">
         <h2 className="section-title">{title}</h2>
+
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
@@ -48,35 +128,62 @@ export default async function TenantsPage() {
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Phone</th>
+                <th className="px-4 py-3 font-medium">Right to Rent</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
-                <tr key={t.id} className="border-t border-slate-200">
-                  <td className="px-4 py-3 font-medium text-slate-900">{t.fullName}</td>
-                  <td className="px-4 py-3 text-slate-700">{t.email ?? ""}</td>
-                  <td className="px-4 py-3 text-slate-700">{t.phone ?? ""}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isCurrentTenant(t) ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
-                      {isCurrentTenant(t) ? "Current" : "Archived"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Link href={`/tenants/${t.id}/edit`} className="btn btn-secondary btn-sm">Edit</Link>
-                      <form action={deleteTenant}>
-                        <input type="hidden" name="tenantId" value={t.id} />
-                        <ConfirmSubmit className="btn btn-secondary btn-sm" confirmMessage="Archive (soft-delete) this tenant? They will remain linked historically.">
-                          Archive
-                        </ConfirmSubmit>
-                      </form>
-                    </div>
+              {rows.map((t) => {
+                const currentTenant = isCurrentTenant(t);
+                const rtr = getRightToRentBadge(t.rightToRentExpiresOn ?? null, currentTenant);
+
+                return (
+                  <tr key={t.id} className="border-t border-slate-200">
+                    <td className="px-4 py-3 font-medium text-slate-900">{t.fullName}</td>
+                    <td className="px-4 py-3 text-slate-700">{t.email ?? ""}</td>
+                    <td className="px-4 py-3 text-slate-700">{t.phone ?? ""}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${rtr.className}`}>
+                        {rtr.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          currentTenant ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {currentTenant ? "Current" : "Archived"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Link href={`/tenants/${t.id}/edit`} className="btn btn-secondary btn-sm">
+                          Edit
+                        </Link>
+                        <form action={deleteTenant}>
+                          <input type="hidden" name="tenantId" value={t.id} />
+                          <ConfirmSubmit
+                            className="btn btn-secondary btn-sm"
+                            confirmMessage="Archive (soft-delete) this tenant? They will remain linked historically."
+                          >
+                            Archive
+                          </ConfirmSubmit>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-4 text-slate-500">
+                    None.
                   </td>
                 </tr>
-              ))}
-              {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-4 text-slate-500">None.</td></tr>}
+              )}
             </tbody>
           </table>
         </div>
@@ -93,25 +200,43 @@ export default async function TenantsPage() {
 
       <section className="section-shell section-shell-muted max-w-4xl">
         <h2 className="section-title">Add tenant</h2>
+
         <form action={createTenant} className="mt-4 grid gap-4">
           <label className="grid gap-2 text-sm font-medium text-slate-700">
             Full name
-            <input name="fullName" placeholder="e.g. John Smith" className="rounded-lg border border-slate-300 px-3 py-2" />
+            <input
+              name="fullName"
+              placeholder="e.g. John Smith"
+              className="rounded-lg border border-slate-300 px-3 py-2"
+            />
           </label>
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 text-sm font-medium text-slate-700">
               Email (optional)
               <input name="email" className="rounded-lg border border-slate-300 px-3 py-2" />
             </label>
+
             <label className="grid gap-2 text-sm font-medium text-slate-700">
               Phone (optional)
               <input name="phone" className="rounded-lg border border-slate-300 px-3 py-2" />
             </label>
           </div>
+
+          <label className="grid gap-2 text-sm font-medium text-slate-700">
+            Right to Rent expiry (optional)
+            <input
+              name="rightToRentExpiresOn"
+              type="date"
+              className="rounded-lg border border-slate-300 px-3 py-2"
+            />
+          </label>
+
           <label className="grid gap-2 text-sm font-medium text-slate-700">
             Notes
             <input name="notes" className="rounded-lg border border-slate-300 px-3 py-2" />
           </label>
+
           <div>
             <SubmitButton>Create tenant</SubmitButton>
           </div>

@@ -53,18 +53,20 @@ model Property {
 }
 
 model Tenant {
-  id          String          @id @default(cuid())
-  fullName    String
-  email       String?
-  phone       String?
-  notes       String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  deletedAt   DateTime?
-  contactLogs ContactLog[]
-  tenancies   TenancyTenant[]
+  id                   String          @id @default(cuid())
+  fullName             String
+  email                String?
+  phone                String?
+  notes                String?
+  rightToRentExpiresOn DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
+  contactLogs          ContactLog[]
+  tenancies            TenancyTenant[]
 
   @@index([deletedAt])
+  @@index([rightToRentExpiresOn])
 }
 
 model Tenancy {

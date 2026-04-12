@@ -4,10 +4,11 @@ import { getTenancyArrears, isSection8Eligible } from "./arrears";
 
 export type ActionItem = {
   key: string;
-  category: "COMPLIANCE" | "INSPECTION" | "ARREARS" | "NOTICE" | "MORTGAGE";
+  category: "COMPLIANCE" | "INSPECTION" | "ARREARS" | "NOTICE" | "MORTGAGE" | "TENANT";
   subject: string;
   propertyId?: string;
   tenancyId?: string;
+  tenantId?: string;
   nextAction: string;
   dueDate?: Date | null;
   daysRemaining?: number | null;
@@ -20,10 +21,32 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
   const [properties, tenancies] = await Promise.all([
     prisma.property.findMany({
       where: { deletedAt: null },
-      include: { compliance: { where: { deletedAt: null } }, inspections: { where: { deletedAt: null } }, mortgage: true },
+      include: {
+        compliance: { where: { deletedAt: null } },
+        inspections: { where: { deletedAt: null } },
+        mortgage: true,
+      },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.tenancy.findMany({ where: { isActive: true, deletedAt: null }, orderBy: { createdAt: "asc" } }),
+    prisma.tenancy.findMany({
+      where: { isActive: true, deletedAt: null },
+      include: {
+        property: { select: { id: true, name: true } },
+        tenants: {
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                fullName: true,
+                deletedAt: true,
+                rightToRentExpiresOn: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   const actions: ActionItem[] = [];
@@ -52,8 +75,6 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
         });
       }
     }
-
-
 
     if (prop.mortgage && !prop.mortgage.deletedAt) {
       const days = prop.mortgage.productEndDate ? daysBetween(asOf, prop.mortgage.productEndDate) : null;
@@ -105,6 +126,7 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
 
   for (const t of tenancies) {
     const arrears = await getTenancyArrears(t.id, asOf);
+
     if (arrears > 0) {
       const s8 = await isSection8Eligible(t.id, asOf);
       actions.push({
@@ -118,12 +140,42 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
         rag: s8 ? "RED" : "AMBER",
       });
     }
+
+    for (const tenancyTenant of t.tenants) {
+      const tenant = tenancyTenant.tenant;
+      if (tenant.deletedAt || !tenant.rightToRentExpiresOn) continue;
+
+      const days = daysBetween(asOf, tenant.rightToRentExpiresOn);
+      if (days > 60) continue;
+
+      const rag = ragFromDaysRemaining(days);
+
+      let nextAction = "No action";
+      if (days < 0) nextAction = "Right to Rent expired: repeat check immediately";
+      else if (days <= 30) nextAction = "Right to Rent expiring soon: repeat check now";
+      else nextAction = "Right to Rent expires within 60 days: prepare follow-up check";
+
+      actions.push({
+        key: `TENANT_RTR:${tenant.id}`,
+        category: "TENANT",
+        subject: `${tenant.fullName} (${t.property.name})`,
+        propertyId: t.property.id,
+        tenancyId: t.id,
+        tenantId: tenant.id,
+        nextAction,
+        dueDate: tenant.rightToRentExpiresOn,
+        daysRemaining: days,
+        rag,
+      });
+    }
   }
 
   const rank = (r: string) => (r === "RED" ? 0 : r === "AMBER" ? 1 : 2);
+
   actions.sort((a, b) => {
     const rr = rank(a.rag) - rank(b.rag);
     if (rr !== 0) return rr;
+
     const ad = a.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const bd = b.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
     return ad - bd;
