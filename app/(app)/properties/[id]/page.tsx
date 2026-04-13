@@ -397,14 +397,30 @@ export default async function PropertyPage({
               return (
                 <div key={type} className="flex items-center justify-between gap-3">
                   <span>{type}</span>
-                  <span className={status.tone}>{item?.expiresOn ? fmt(item.expiresOn) : "Not set"}</span>
+                  <span className={status.tone}>
+                    {item?.expiresOn ? fmt(item.expiresOn) : "Not set"}
+                  </span>
                 </div>
               );
             })}
+
+            {/* ✅ Property licence */}
+            <div className="flex items-center justify-between gap-3 border-t pt-2 mt-2">
+              <span>Licence</span>
+              <span className={statusLabel(property.propertyLicenseExpiresOn).tone}>
+                {property.propertyLicenseExpiresOn
+                  ? fmt(property.propertyLicenseExpiresOn)
+                  : "Not set"}
+              </span>
+            </div>
+
+            {/* Existing inspection row (keep it if already there) */}
             <div className="flex items-center justify-between gap-3 border-t pt-2 mt-2">
               <span>Inspection</span>
               <span className={statusLabel(property.inspections[0]?.nextDue).tone}>
-                {property.inspections[0]?.nextDue ? fmt(property.inspections[0].nextDue) : "Not set"}
+                {property.inspections[0]?.nextDue
+                  ? fmt(property.inspections[0].nextDue)
+                  : "Not set"}
               </span>
             </div>
           </div>
