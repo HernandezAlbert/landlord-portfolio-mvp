@@ -11,10 +11,15 @@ export default function NewPropertyPage() {
     const city = String(formData.get("city") ?? "").trim();
     const postcode = String(formData.get("postcode") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
-    const advertisedRentMonthlyPounds = Number(formData.get("advertisedRentMonthly") ?? 0);
+    const advertisedRentMonthlyPounds = Number(
+      formData.get("advertisedRentMonthly") ?? 0
+    );
+
+    const propertyLicenseExpiresOnRaw = String(
+      formData.get("propertyLicenseExpiresOn") ?? ""
+    ).trim();
 
     if (!name || !address1 || !city || !postcode) {
-      // MVP: keep it simple — redirect back (you'll see empty values)
       redirect("/properties/new");
     }
 
@@ -26,14 +31,14 @@ export default function NewPropertyPage() {
         city,
         postcode,
         notes: notesRaw || null,
-        advertisedRentMonthly: advertisedRentMonthlyPounds ? Math.round(advertisedRentMonthlyPounds * 100) : null,
+        advertisedRentMonthly: advertisedRentMonthlyPounds
+          ? Math.round(advertisedRentMonthlyPounds * 100)
+          : null,
+        propertyLicenseExpiresOn: propertyLicenseExpiresOnRaw
+          ? new Date(propertyLicenseExpiresOnRaw)
+          : null,
         compliance: {
-          // Create placeholders so the action list has something to work with
-          create: [
-            { type: "GAS" },
-            { type: "EICR" },
-            { type: "EPC" },
-          ],
+          create: [{ type: "GAS" }, { type: "EICR" }, { type: "EPC" }],
         },
         inspections: { create: [{ lastDate: null, nextDue: null }] },
       },
@@ -44,47 +49,53 @@ export default function NewPropertyPage() {
 
   return (
     <div style={{ display: "grid", gap: 12, maxWidth: 720 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>New property</h1>
-      <p style={{ margin: 0, opacity: 0.75 }}>
-        This creates the property plus placeholder compliance items (Gas/EICR/EPC) and one inspection record.
-      </p>
+      <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>
+        New property
+      </h1>
 
       <form action={createProperty} style={{ display: "grid", gap: 10 }}>
         <label>
           Name
-          <input name="name" placeholder="e.g. Flat A" style={{ width: "100%" }} />
-        </label>
-        <label>
-          Address line 1
-          <input name="address1" placeholder="10 Example Street" style={{ width: "100%" }} />
-        </label>
-        <label>
-          Address line 2 (optional)
-          <input name="address2" placeholder="" style={{ width: "100%" }} />
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label>
-            City
-            <input name="city" placeholder="London" style={{ width: "100%" }} />
-          </label>
-          <label>
-            Postcode
-            <input name="postcode" placeholder="E1 1AA" style={{ width: "100%" }} />
-          </label>
-        </div>
-        <label>
-          Target / advertised monthly rent (£)
-          <input name="advertisedRentMonthly" type="number" step={0.01} min={0} placeholder="e.g. 1200" style={{ width: "100%" }} />
-        </label>
-        <label>
-          Notes (optional)
-          <textarea name="notes" rows={4} style={{ width: "100%" }} />
+          <input name="name" style={{ width: "100%" }} />
         </label>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="submit">Create</button>
-          <a href="/properties">Cancel</a>
-        </div>
+        <label>
+          Address line 1
+          <input name="address1" style={{ width: "100%" }} />
+        </label>
+
+        <label>
+          Address line 2 (optional)
+          <input name="address2" style={{ width: "100%" }} />
+        </label>
+
+        <label>
+          City
+          <input name="city" style={{ width: "100%" }} />
+        </label>
+
+        <label>
+          Postcode
+          <input name="postcode" style={{ width: "100%" }} />
+        </label>
+
+        <label>
+          Rent (£)
+          <input name="advertisedRentMonthly" type="number" step="0.01" />
+        </label>
+
+        {/* ✅ NEW FIELD */}
+        <label>
+          Property licence expiry (optional)
+          <input name="propertyLicenseExpiresOn" type="date" />
+        </label>
+
+        <label>
+          Notes
+          <textarea name="notes" rows={4} />
+        </label>
+
+        <button type="submit">Create</button>
       </form>
     </div>
   );
