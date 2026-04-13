@@ -140,6 +140,7 @@ export default async function PropertyPage({
   const mortgageMonthly = property.mortgage?.monthlyPayment ?? 0;
   const netThisMonth = receivedThisMonth - monthExpenses - mortgageMonthly;
   const hasActiveTenancy = activeTenancies.length > 0;
+  const propertyLicenceStatus = statusLabel(property.propertyLicenseExpiresOn);
 
   return (
     <div className="space-y-6">
@@ -345,7 +346,7 @@ export default async function PropertyPage({
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border bg-white p-4 space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Mortgage</h2>
@@ -367,6 +368,20 @@ export default async function PropertyPage({
           <div className="font-medium">{property.insurancePolicy?.provider ?? "Not set"}</div>
           <div className={`text-sm ${statusLabel(property.insurancePolicy?.renewalDate).tone}`}>
             {property.insurancePolicy?.renewalDate ? `Renewal ${fmt(property.insurancePolicy.renewalDate)}` : "Renewal date not set"}
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-white p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Property licence</h2>
+            <Link href={`/properties/${property.id}/edit`} className="btn btn-secondary btn-sm">Edit</Link>
+          </div>
+          <div className="text-sm text-slate-500">Expiry date</div>
+          <div className="font-medium">
+            {property.propertyLicenseExpiresOn ? fmt(property.propertyLicenseExpiresOn) : "Not set"}
+          </div>
+          <div className={`text-sm ${propertyLicenceStatus.tone}`}>
+            {propertyLicenceStatus.label}
           </div>
         </div>
 
