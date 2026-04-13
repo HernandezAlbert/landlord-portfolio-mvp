@@ -17,7 +17,9 @@ export type ActionItem = {
   snoozedUntil?: Date | null;
 };
 
-export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionItem[]> {
+export async function buildWeeklyActionList(
+  asOf = new Date(),
+): Promise<ActionItem[]> {
   const [properties, tenancies] = await Promise.all([
     prisma.property.findMany({
       where: { deletedAt: null },
@@ -28,6 +30,7 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
       },
       orderBy: { createdAt: "asc" },
     }),
+
     prisma.tenancy.findMany({
       where: { isActive: true, deletedAt: null },
       include: {
@@ -76,9 +79,36 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
       }
     }
 
+    if (prop.propertyLicenseExpiresOn) {
+      const days = daysBetween(asOf, prop.propertyLicenseExpiresOn);
+      const rag = ragFromDaysRemaining(days);
+
+      let nextAction = "No action";
+      if (days < 0) nextAction = "Property licence expired: renew now";
+      else if (days <= 30) nextAction = "Renew property licence now";
+      else if (days <= 60) nextAction = "Prepare property licence renewal";
+
+      if (nextAction !== "No action") {
+        actions.push({
+          key: `PROPERTY_LICENSE:${prop.id}`,
+          category: "COMPLIANCE",
+          subject: `${prop.name} (Property licence)`,
+          propertyId: prop.id,
+          nextAction,
+          dueDate: prop.propertyLicenseExpiresOn,
+          daysRemaining: days,
+          rag,
+        });
+      }
+    }
+
     if (prop.mortgage && !prop.mortgage.deletedAt) {
-      const days = prop.mortgage.productEndDate ? daysBetween(asOf, prop.mortgage.productEndDate) : null;
-      const rag = days === null ? "GREEN" : days <= 30 ? "RED" : days <= 90 ? "AMBER" : "GREEN";
+      const days = prop.mortgage.productEndDate
+        ? daysBetween(asOf, prop.mortgage.productEndDate)
+        : null;
+
+      const rag =
+        days === null ? "GREEN" : days <= 30 ? "RED" : days <= 90 ? "AMBER" : "GREEN";
 
       let nextAction = "No action";
       if (days === null) nextAction = "Confirm mortgage product end date";
@@ -129,6 +159,7 @@ export async function buildWeeklyActionList(asOf = new Date()): Promise<ActionIt
 
     if (arrears > 0) {
       const s8 = await isSection8Eligible(t.id, asOf);
+
       actions.push({
         key: `ARREARS:${t.id}`,
         category: "ARREARS",

@@ -19,6 +19,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
     overduePayments,
     complianceSoon,
     insuranceSoon,
+    propertyLicencesSoon,
     applicants,
     rightToRentSoon,
   ] = await Promise.all([
@@ -105,6 +106,23 @@ export async function buildLandlordDigest(asOf = new Date()) {
       },
       include: { property: true },
       orderBy: { renewalDate: "asc" },
+      take: 12,
+    }),
+
+    prisma.property.findMany({
+      where: {
+        deletedAt: null,
+        propertyLicenseExpiresOn: {
+          not: null,
+          lte: soon,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        propertyLicenseExpiresOn: true,
+      },
+      orderBy: { propertyLicenseExpiresOn: "asc" },
       take: 12,
     }),
 
@@ -219,6 +237,12 @@ export async function buildLandlordDigest(asOf = new Date()) {
             `- ${i.property.name}: insurance renewal ${i.renewalDate?.toISOString().slice(0, 10)}`,
         )
       : ["- No insurance renewals due soon"]),
+    ...(propertyLicencesSoon.length
+      ? propertyLicencesSoon.map(
+          (p) =>
+            `- ${p.name}: property licence expires ${p.propertyLicenseExpiresOn?.toISOString().slice(0, 10)}`,
+        )
+      : []),
     ...(rightToRentSoon.length
       ? rightToRentSoon.map(
           (t) =>
@@ -302,6 +326,16 @@ export async function buildLandlordDigest(asOf = new Date()) {
               )
               .join("")
           : "<li>No insurance renewals due soon</li>"
+      }
+      ${
+        propertyLicencesSoon.length
+          ? propertyLicencesSoon
+              .map(
+                (p) =>
+                  `<li>${escapeHtml(p.name)} — property licence expires ${p.propertyLicenseExpiresOn?.toISOString().slice(0, 10)}</li>`,
+              )
+              .join("")
+          : ""
       }
       ${
         rightToRentSoon.length
