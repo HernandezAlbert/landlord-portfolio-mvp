@@ -75,14 +75,34 @@ export async function buildLandlordDigest(asOf = new Date()) {
     }),
 
     prisma.complianceItem.findMany({
-      where: { deletedAt: null, expiresOn: { not: null, lte: soon } },
+      where: {
+        deletedAt: null,
+        expiresOn: {
+          not: null,
+          gte: asOf,
+          lte: soon,
+        },
+        property: {
+          deletedAt: null,
+        },
+      },
       include: { property: true },
       orderBy: { expiresOn: "asc" },
       take: 12,
     }),
 
     prisma.insurancePolicy.findMany({
-      where: { deletedAt: null, renewalDate: { not: null, lte: soon } },
+      where: {
+        deletedAt: null,
+        renewalDate: {
+          not: null,
+          gte: asOf,
+          lte: soon,
+        },
+        property: {
+          deletedAt: null,
+        },
+      },
       include: { property: true },
       orderBy: { renewalDate: "asc" },
       take: 12,
@@ -98,12 +118,12 @@ export async function buildLandlordDigest(asOf = new Date()) {
       take: 20,
     }),
 
-    // 🟢 NEW — RTR
     prisma.tenant.findMany({
       where: {
         deletedAt: null,
         rightToRentExpiresOn: {
           not: null,
+          gte: asOf,
           lte: soon,
         },
       },
@@ -112,7 +132,6 @@ export async function buildLandlordDigest(asOf = new Date()) {
     }),
   ]);
 
-  // 🔴 FILTER FOLLOW UPS (remove stale arrears ones)
   const followUps: typeof rawFollowUps = [];
 
   for (const f of rawFollowUps) {
@@ -160,10 +179,6 @@ export async function buildLandlordDigest(asOf = new Date()) {
     .filter((row) => row.missingItems.length > 0)
     .slice(0, 10);
 
-  // =========================
-  // TEXT OUTPUT
-  // =========================
-
   const lines = [
     `Landlord Portfolio digest (${asOf.toISOString().slice(0, 10)})`,
     "",
@@ -204,15 +219,12 @@ export async function buildLandlordDigest(asOf = new Date()) {
             `- ${i.property.name}: insurance renewal ${i.renewalDate?.toISOString().slice(0, 10)}`,
         )
       : ["- No insurance renewals due soon"]),
-
-    // 🟢 NEW — RTR in compliance
     ...(rightToRentSoon.length
       ? rightToRentSoon.map(
           (t) =>
             `- ${t.fullName}: Right to Rent expires ${t.rightToRentExpiresOn!.toISOString().slice(0, 10)}`,
         )
       : []),
-
     "",
     "Applicants missing documents:",
     ...(applicantReminders.length
@@ -228,10 +240,6 @@ export async function buildLandlordDigest(asOf = new Date()) {
         `- [${a.rag}] ${a.nextAction} — ${a.subject}${a.dueDate ? ` (due ${a.dueDate.toISOString().slice(0, 10)})` : ""}`,
     ),
   ].join("\n");
-
-  // =========================
-  // HTML OUTPUT
-  // =========================
 
   const html = `
     <h2>Landlord Portfolio digest (${asOf.toISOString().slice(0, 10)})</h2>
