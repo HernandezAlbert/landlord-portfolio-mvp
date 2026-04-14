@@ -2,11 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import PropertyTableRow from "@/components/PropertyTableRow";
 import { requireSessionUser } from "@/lib/auth";
-
-function formatDate(d?: Date | null) {
-  if (!d) return "";
-  return d.toISOString().slice(0, 10);
-}
+import { money as formatMoney } from "@/lib/finance";
 
 export default async function PropertiesPage() {
   const user = await requireSessionUser();
@@ -53,9 +49,12 @@ export default async function PropertiesPage() {
                 id={p.id}
                 name={p.name}
                 address={`${p.address1}, ${p.city}, ${p.postcode}`}
-                advertisedRentMonthly={p.advertisedRentMonthly}
-                mortgageLabel={p.mortgage?.lender ?? ""}
-                mortgageEnd={formatDate(p.mortgage?.productEndDate)}
+                rentLabel={
+                  typeof p.advertisedRentMonthly === "number"
+                    ? formatMoney(p.advertisedRentMonthly)
+                    : "Not set"
+                }
+                mortgageLabel={p.mortgage?.lender ?? "Not set"}
               />
             ))}
 

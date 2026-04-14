@@ -15,6 +15,7 @@ export type ImportedApplicantUpsertOutcome = {
 };
 
 type UpsertArgs = {
+  userId: string;
   propertyId: string | null;
   row: ImportedApplicantPayload;
   rentMonthly: number | null;
@@ -40,9 +41,7 @@ function buildApplicantUpdateData(args: {
     fullName: row.fullName,
     email: row.email,
     phone: row.phone,
-    property: propertyId
-      ? { connect: { id: propertyId } }
-      : { disconnect: true },
+    property: propertyId ? { connect: { id: propertyId } } : { disconnect: true },
     employmentStatus: row.employmentStatus,
     monthlyIncome: row.monthlyIncome,
     requestedMoveIn: row.requestedMoveIn,
@@ -88,6 +87,7 @@ function buildApplicantUpdateData(args: {
 
 async function updateExistingApplicant(args: {
   applicantId: string;
+  userId: string;
   propertyId: string | null;
   row: ImportedApplicantPayload;
   screening: ReturnType<typeof screenImportedApplicant>;
@@ -96,6 +96,7 @@ async function updateExistingApplicant(args: {
 }) {
   const {
     applicantId,
+    userId,
     propertyId,
     row,
     screening,
@@ -103,8 +104,11 @@ async function updateExistingApplicant(args: {
     existingApplicants,
   } = args;
 
-  await prisma.applicant.update({
-    where: { id: applicantId },
+  await prisma.applicant.updateMany({
+    where: {
+      id: applicantId,
+      userId,
+    },
     data: buildApplicantUpdateData({
       propertyId,
       row,
@@ -152,6 +156,7 @@ export async function upsertImportedApplicant(
   args: UpsertArgs,
 ): Promise<ImportedApplicantUpsertOutcome> {
   const {
+    userId,
     propertyId,
     row,
     rentMonthly,
@@ -167,14 +172,18 @@ export async function upsertImportedApplicant(
   });
 
   if (row.externalKey) {
-    const existingByKey = await prisma.applicant.findUnique({
-      where: { importExternalKey: row.externalKey },
+    const existingByKey = await prisma.applicant.findFirst({
+      where: {
+        userId,
+        importExternalKey: row.externalKey,
+      },
       select: { id: true },
     });
 
     if (existingByKey?.id) {
       return updateExistingApplicant({
         applicantId: existingByKey.id,
+        userId,
         propertyId,
         row,
         screening,
@@ -185,10 +194,10 @@ export async function upsertImportedApplicant(
   }
 
   const existing = applicantLooksDuplicate(existingApplicants, row);
-
   if (existing?.id) {
     return updateExistingApplicant({
       applicantId: existing.id,
+      userId,
       propertyId,
       row,
       screening,
@@ -203,14 +212,13 @@ export async function upsertImportedApplicant(
   });
 
   try {
-    const applicant = await prisma.applicant.create({
+        const applicant = await prisma.applicant.create({
       data: {
+        userId,
         fullName: row.fullName,
         email: row.email,
         phone: row.phone,
-        property: propertyId
-          ? { connect: { id: propertyId } }
-          : undefined,
+        propertyId,
         employmentStatus: row.employmentStatus,
         monthlyIncome: row.monthlyIncome,
         requestedMoveIn: row.requestedMoveIn,
@@ -256,14 +264,18 @@ export async function upsertImportedApplicant(
     return { applicantId: applicant.id, action: "created" };
   } catch (error) {
     if (isUniqueImportExternalKeyError(error) && row.externalKey) {
-      const existingAfterConflict = await prisma.applicant.findUnique({
-        where: { importExternalKey: row.externalKey },
+      const existingAfterConflict = await prisma.applicant.findFirst({
+        where: {
+          userId,
+          importExternalKey: row.externalKey,
+        },
         select: { id: true },
       });
 
       if (existingAfterConflict?.id) {
         return updateExistingApplicant({
           applicantId: existingAfterConflict.id,
+          userId,
           propertyId,
           row,
           screening,

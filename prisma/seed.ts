@@ -9,18 +9,17 @@ async function main() {
     throw new Error("ADMIN_EMAIL and ADMIN_PASSWORD must be set for seeding.");
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
   const passwordHash = await bcrypt.hash(password, 12);
 
-  // ✅ ONLY create/update admin user
-  await prisma.user.upsert({
-    where: { email },
+  const adminUser = await prisma.user.upsert({
+    where: { email: normalizedEmail },
     update: { passwordHash },
-    create: { email, passwordHash },
+    create: { email: normalizedEmail, passwordHash },
   });
 
-  console.log("Admin user ensured:", email);
+  console.log("Admin user ensured:", normalizedEmail);
 
-  // 🚨 OPTIONAL: only seed demo data if explicitly enabled
   if (process.env.SEED_DEMO_DATA !== "true") {
     console.log("Skipping demo data (SEED_DEMO_DATA not set)");
     return;
@@ -28,10 +27,9 @@ async function main() {
 
   console.log("Seeding demo data...");
 
-  // ---- DEMO DATA BELOW (only runs if flag enabled) ----
-
   const p1 = await prisma.property.create({
     data: {
+      userId: adminUser.id,
       name: "Flat A",
       address1: "10 Example Street",
       city: "London",
@@ -41,6 +39,7 @@ async function main() {
 
   const p2 = await prisma.property.create({
     data: {
+      userId: adminUser.id,
       name: "House B",
       address1: "22 Sample Road",
       city: "Romford",
@@ -49,7 +48,11 @@ async function main() {
   });
 
   const tenant = await prisma.tenant.create({
-    data: { fullName: "John Smith", email: "john@example.com" },
+    data: {
+      userId: adminUser.id,
+      fullName: "John Smith",
+      email: "john@example.com",
+    },
   });
 
   await prisma.tenancy.create({
