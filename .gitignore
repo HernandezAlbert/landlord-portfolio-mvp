@@ -7,3 +7,7 @@ prisma/dev.db
 *.log
 public/uploads
 .vercel
+# Data exports
+export*.json
+*.backup.json
+*.dump.json
