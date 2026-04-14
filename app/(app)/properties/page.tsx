@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import PropertyTableRow from "@/components/PropertyTableRow";
+import { requireSessionUser } from "@/lib/auth";
 
 function formatDate(d?: Date | null) {
   if (!d) return "";
@@ -8,42 +9,43 @@ function formatDate(d?: Date | null) {
 }
 
 export default async function PropertiesPage() {
+  const user = await requireSessionUser();
+
   const props = await prisma.property.findMany({
-    where: { deletedAt: null },
+    where: {
+      userId: user.id,
+      deletedAt: null,
+    },
     include: { mortgage: true },
     orderBy: { createdAt: "asc" },
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Properties</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold">Properties</h1>
+          <p className="text-sm text-slate-500">
             Manage properties, mortgages, compliance and inspections.
           </p>
         </div>
 
-        <Link
-          href="/properties/new"
-          className="btn btn-primary"
-        >
+        <Link href="/properties/new" className="btn btn-primary">
           + New Property
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl border bg-white">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
+          <thead className="bg-slate-50">
             <tr>
-              <th className="px-4 py-3 font-medium">Property</th>
-              <th className="px-4 py-3 font-medium">Address</th>
-              <th className="px-4 py-3 font-medium">Advertised Rent</th>
-              <th className="px-4 py-3 font-medium">Mortgage</th>
-              <th className="px-4 py-3 font-medium">Actions</th>
+              <th className="p-3 text-left">Property</th>
+              <th className="p-3 text-left">Address</th>
+              <th className="p-3 text-left">Advertised Rent</th>
+              <th className="p-3 text-left">Mortgage</th>
+              <th className="p-3 text-left">Actions</th>
             </tr>
           </thead>
-
           <tbody>
             {props.map((p) => (
               <PropertyTableRow
@@ -51,18 +53,19 @@ export default async function PropertiesPage() {
                 id={p.id}
                 name={p.name}
                 address={`${p.address1}, ${p.city}, ${p.postcode}`}
-                rentLabel={p.advertisedRentMonthly ? `£${(p.advertisedRentMonthly / 100).toFixed(2)}` : "Not set"}
-                mortgageLabel={
-                  p.mortgage?.lender
-                    ? `${p.mortgage.lender}${
-                        formatDate(p.mortgage.productEndDate)
-                          ? ` • ends ${formatDate(p.mortgage.productEndDate)}`
-                          : ""
-                      }`
-                    : "Not set"
-                }
+                advertisedRentMonthly={p.advertisedRentMonthly}
+                mortgageLabel={p.mortgage?.lender ?? ""}
+                mortgageEnd={formatDate(p.mortgage?.productEndDate)}
               />
             ))}
+
+            {!props.length && (
+              <tr className="border-t">
+                <td className="p-4 text-slate-500" colSpan={5}>
+                  No properties yet.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

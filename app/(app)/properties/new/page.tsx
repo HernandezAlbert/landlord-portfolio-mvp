@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { requireSessionUser } from "@/lib/auth";
 
 export default function NewPropertyPage() {
   async function createProperty(formData: FormData) {
     "use server";
+
+    const user = await requireSessionUser();
 
     const name = String(formData.get("name") ?? "").trim();
     const address1 = String(formData.get("address1") ?? "").trim();
@@ -12,11 +15,10 @@ export default function NewPropertyPage() {
     const postcode = String(formData.get("postcode") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
     const advertisedRentMonthlyPounds = Number(
-      formData.get("advertisedRentMonthly") ?? 0
+      formData.get("advertisedRentMonthly") ?? 0,
     );
-
     const propertyLicenseExpiresOnRaw = String(
-      formData.get("propertyLicenseExpiresOn") ?? ""
+      formData.get("propertyLicenseExpiresOn") ?? "",
     ).trim();
 
     if (!name || !address1 || !city || !postcode) {
@@ -25,6 +27,7 @@ export default function NewPropertyPage() {
 
     const property = await prisma.property.create({
       data: {
+        userId: user.id,
         name,
         address1,
         address2: address2Raw || null,
@@ -84,7 +87,6 @@ export default function NewPropertyPage() {
           <input name="advertisedRentMonthly" type="number" step="0.01" />
         </label>
 
-        {/* ✅ NEW FIELD */}
         <label>
           Property licence expiry (optional)
           <input name="propertyLicenseExpiresOn" type="date" />

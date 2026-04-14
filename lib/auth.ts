@@ -16,7 +16,12 @@ export async function verifyPassword(password: string, hash: string) {
 }
 
 export async function signIn(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = email.toLowerCase().trim();
+
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
   if (!user) return { ok: false as const, error: "Invalid credentials" };
 
   const ok = await verifyPassword(password, user.passwordHash);
@@ -41,7 +46,11 @@ export async function signIn(email: string, password: string) {
 
 export async function signOut() {
   const jar = await cookies();
-  jar.set(COOKIE_NAME, "", { httpOnly: true, path: "/", maxAge: 0 });
+  jar.set(COOKIE_NAME, "", {
+    httpOnly: true,
+    path: "/",
+    maxAge: 0,
+  });
 }
 
 export async function getSessionUser() {
@@ -52,14 +61,20 @@ export async function getSessionUser() {
   try {
     const { payload } = await jwtVerify(token, getSecret());
     if (!payload.sub) return null;
-    return { id: String(payload.sub), email: String(payload.email ?? "") };
+
+    return {
+      id: String(payload.sub),
+      email: String(payload.email ?? ""),
+    };
   } catch {
     return null;
   }
 }
 
-export function requireSingleUserEmail(email: string) {
-  const admin = process.env.ADMIN_EMAIL;
-  if (!admin) throw new Error("ADMIN_EMAIL missing");
-  return email.toLowerCase() === admin.toLowerCase();
+export async function requireSessionUser() {
+  const user = await getSessionUser();
+  if (!user) {
+    throw new Error("Unauthenticated");
+  }
+  return user;
 }
