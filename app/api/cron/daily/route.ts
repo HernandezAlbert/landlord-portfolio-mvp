@@ -15,33 +15,52 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const to = process.env.EMAIL_TO;
-  if (!to) {
-    return NextResponse.json({ error: "EMAIL_TO missing" }, { status: 500 });
-  }
-
   const config = await prisma.reminderConfig.findFirst();
   if (config && (!config.enabled || !config.dailyEnabled)) {
-    return NextResponse.json({ ok: true, skipped: true, reason: "Daily reminders disabled" });
+    return NextResponse.json({ ok: true, skipped: true, reason: "Daily disabled" });
   }
 
-  const owner = await prisma.user.findFirst({
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
+  const users = await prisma.user.findMany({
+    include: { settings: true },
   });
 
-  if (!owner) {
-    return NextResponse.json({ ok: true, skipped: true, reason: "No users found" });
+  let sent = 0;
+  let skipped = 0;
+
+  for (const user of users) {
+    const userSettings = user.settings;
+
+    if (userSettings && userSettings.digestEnabled === false) {
+      skipped++;
+      continue;
+    }
+
+    const to = userSettings?.digestEmailTo || user.email;
+    if (!to) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const digest = await buildLandlordDigest(user.id, new Date());
+
+      await sendEmail({
+        to,
+        subject: "Landlord Portfolio — Daily digest",
+        html: digest.html,
+        text: digest.text,
+      });
+
+      sent++;
+    } catch (err) {
+      console.error("Daily digest failed for user", user.id, err);
+    }
   }
 
-  const digest = await buildLandlordDigest(owner.id, new Date());
-
-  await sendEmail({
-    to,
-    subject: "Landlord Portfolio — Daily digest",
-    html: digest.html,
-    text: digest.text,
+  return NextResponse.json({
+    ok: true,
+    usersProcessed: users.length,
+    sent,
+    skipped,
   });
-
-  return NextResponse.json({ ok: true });
 }
