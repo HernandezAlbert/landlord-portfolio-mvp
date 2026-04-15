@@ -1,66 +1,69 @@
 import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-export default async function NewTenancyPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ propertyId?: string }>;
-}) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const propertyId = resolvedSearchParams?.propertyId ?? "";
+export default async function NewTenancyPage() {
+  const user = await requireSessionUser();
 
-  const [properties, tenants] = await Promise.all([
-    prisma.property.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-    }),
-    prisma.tenant.findMany({
-      where: { deletedAt: null },
-      orderBy: { fullName: "asc" },
-    }),
-  ]);
+  const properties = await prisma.property.findMany({
+    where: {
+      userId: user.id,
+      deletedAt: null,
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const tenants = await prisma.tenant.findMany({
+    where: {
+      userId: user.id,
+      deletedAt: null,
+    },
+    orderBy: { fullName: "asc" },
+  });
 
   async function createTenancy(formData: FormData) {
     "use server";
 
+    const currentUser = await requireSessionUser();
+
     const propertyId = String(formData.get("propertyId") ?? "").trim();
-    const tenantIds = formData
-      .getAll("tenantIds")
-      .map((v) => String(v).trim())
-      .filter(Boolean);
+    const tenantId = String(formData.get("tenantId") ?? "").trim();
+    const rentMonthly = Math.round(
+      Number(formData.get("rentMonthly") ?? 0) * 100,
+    );
+    const rentDueDayRaw = Number(formData.get("rentDueDay") ?? 1);
+    const rentDueDay = Math.min(28, Math.max(1, rentDueDayRaw || 1));
 
-    const startDateRaw = String(formData.get("startDate") ?? "").trim();
-    const endDateRaw = String(formData.get("endDate") ?? "").trim();
-    const rentMonthlyRaw = String(formData.get("rentMonthly") ?? "").trim();
-    const rentDueDayRaw = String(formData.get("rentDueDay") ?? "").trim();
-    const notesRaw = String(formData.get("notes") ?? "").trim();
+    const property = await prisma.property.findFirst({
+      where: {
+        id: propertyId,
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+    });
 
-    if (!propertyId || !startDateRaw || !rentMonthlyRaw) {
-      redirect("/tenancies/new");
+    const tenant = await prisma.tenant.findFirst({
+      where: {
+        id: tenantId,
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+    });
+
+    if (!property || !tenant || rentMonthly <= 0) {
+      redirect("/tenancies");
     }
-
-    const rentMonthly = Math.round(Number(rentMonthlyRaw) * 100);
-    const rentDueDay =
-      rentDueDayRaw && Number.isFinite(Number(rentDueDayRaw))
-        ? Number(rentDueDayRaw)
-        : 1;
 
     const tenancy = await prisma.tenancy.create({
       data: {
         propertyId,
-        startDate: new Date(startDateRaw),
-        endDate: endDateRaw ? new Date(endDateRaw) : null,
         rentMonthly,
         rentDueDay,
         isActive: true,
-        notes: notesRaw || null,
-        tenants: tenantIds.length
-          ? {
-              create: tenantIds.map((tenantId) => ({
-                tenantId,
-              })),
-            }
-          : undefined,
+        startDate: new Date(),
+        tenants: {
+          create: [{ tenantId }],
+        },
       },
     });
 
@@ -68,117 +71,62 @@ export default async function NewTenancyPage({
   }
 
   return (
-    <div className="grid gap-4 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">New tenancy</h1>
-        <a href="/tenancies">← Back</a>
-      </div>
+    <form action={createTenancy} className="space-y-4">
+      <h1 className="text-xl font-bold">New Tenancy</h1>
 
-      <form
-        action={createTenancy}
-        className="grid gap-4 rounded-xl border bg-white p-4"
-      >
-        <label className="grid gap-1 text-sm">
-          <span>Property</span>
-          <select
-            name="propertyId"
-            defaultValue={propertyId}
-            className="rounded border px-3 py-2"
-            required
-          >
-            <option value="">Select property</option>
-            {properties.map((property) => (
-              <option key={property.id} value={property.id}>
-                {property.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <label className="grid gap-1">
+        <span>Property</span>
+        <select name="propertyId" className="border p-2" defaultValue="">
+          <option value="" disabled>
+            Select property
+          </option>
+          {properties.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
-        <label className="grid gap-1 text-sm">
-          <span>Tenants</span>
-          <select
-            name="tenantIds"
-            multiple
-            className="min-h-40 rounded border px-3 py-2"
-          >
-            {tenants.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.fullName}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-slate-500">
-            Hold Ctrl or Cmd to select more than one tenant.
-          </span>
-        </label>
+      <label className="grid gap-1">
+        <span>Tenant</span>
+        <select name="tenantId" className="border p-2" defaultValue="">
+          <option value="" disabled>
+            Select tenant
+          </option>
+          {tenants.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.fullName}
+            </option>
+          ))}
+        </select>
+      </label>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Start date</span>
-            <input
-              type="date"
-              name="startDate"
-              className="rounded border px-3 py-2"
-              required
-            />
-          </label>
+      <label className="grid gap-1">
+        <span>Monthly rent (£)</span>
+        <input
+          name="rentMonthly"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Monthly rent"
+          className="border p-2"
+        />
+      </label>
 
-          <label className="grid gap-1 text-sm">
-            <span>End date (optional)</span>
-            <input
-              type="date"
-              name="endDate"
-              className="rounded border px-3 py-2"
-            />
-          </label>
+      <label className="grid gap-1">
+        <span>Rent due day</span>
+        <input
+          name="rentDueDay"
+          type="number"
+          min="1"
+          max="28"
+          defaultValue={1}
+          className="border p-2"
+        />
+      </label>
 
-          <label className="grid gap-1 text-sm">
-            <span>Monthly rent (£)</span>
-            <input
-              type="number"
-              name="rentMonthly"
-              step="0.01"
-              min="0"
-              className="rounded border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Rent due day of month</span>
-            <input
-              type="number"
-              name="rentDueDay"
-              min="1"
-              max="31"
-              defaultValue="1"
-              className="rounded border px-3 py-2"
-            />
-          </label>
-        </div>
-
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
-          <textarea
-            name="notes"
-            rows={4}
-            className="rounded border px-3 py-2"
-          />
-        </label>
-
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-white"
-          >
-            Create tenancy
-          </button>
-          <a href="/tenancies" className="rounded-lg border px-4 py-2">
-            Cancel
-          </a>
-        </div>
-      </form>
-    </div>
+      <button className="btn btn-primary">Create</button>
+    </form>
   );
 }
