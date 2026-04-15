@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getSessionUser } from "@/lib/auth";
 import {
   formatApplicantStatus,
   formatMoney,
@@ -28,12 +29,23 @@ import GuarantorSummaryCard from "@/components/guarantors/guarantor-summary-card
 import { getDecisionWithGuarantor } from "@/lib/guarantor-decision";
 import ToastBridge from "@/components/ui/toast-bridge";
 
-async function getRent(propertyId?: string | null, advertisedRent?: number | null) {
+async function getRent(
+  userId: string,
+  propertyId?: string | null,
+  advertisedRent?: number | null,
+) {
   if (advertisedRent && advertisedRent > 0) return advertisedRent;
   if (!propertyId) return null;
 
   const activeTenancy = await prisma.tenancy.findFirst({
-    where: { propertyId, isActive: true, deletedAt: null },
+    where: {
+      propertyId,
+      isActive: true,
+      deletedAt: null,
+      property: {
+        userId,
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -123,8 +135,9 @@ async function getWorkflowGuardCode(args: {
   effectiveDecision: string;
   applicantId: string;
   propertyId?: string | null;
+  userId: string;
 }) {
-  const { requestedStatus, currentStatus, effectiveDecision, applicantId, propertyId } = args;
+  const { requestedStatus, currentStatus, effectiveDecision, applicantId, propertyId, userId } = args;
 
   const isDecisionEligibleForDeposit =
     effectiveDecision === "ACCEPT" || effectiveDecision === "REVIEW";
@@ -141,12 +154,10 @@ async function getWorkflowGuardCode(args: {
     return "referencing-blocked-by-decline";
   }
 
-  // ✅ UPDATED: allow during REVIEW or ACCEPT
   if (requestedStatus === "HOLDING_DEPOSIT_PENDING" && !isDecisionEligibleForDeposit) {
     return "deposit-requires-accept";
   }
 
-  // ✅ UPDATED: allow during REVIEW or ACCEPT
   if (requestedStatus === "RESERVED" && !isDecisionEligibleForDeposit) {
     return "reserved-requires-accept";
   }
@@ -167,12 +178,12 @@ async function getWorkflowGuardCode(args: {
     return "deposit-expired-requires-deposit";
   }
 
-  // 🔒 double booking protection (unchanged)
   if (requestedStatus === "RESERVED" && propertyId) {
     const existingReserved = await prisma.applicant.findFirst({
       where: {
         propertyId,
         id: { not: applicantId },
+        userId,
         status: "RESERVED",
       },
     });
@@ -192,6 +203,11 @@ export default async function ApplicantDetailPage({
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    redirect("/login");
+  }
+
   const { id } = await params;
   const qs = (await searchParams) ?? {};
   const uploadStatus = typeof qs.upload === "string" ? qs.upload : "";
@@ -200,13 +216,13 @@ export default async function ApplicantDetailPage({
   const guardStatus = typeof qs.guard === "string" ? qs.guard : "";
   const guardMessage = getWorkflowGuardMessage(guardStatus);
   const toastCode = typeof qs.toast === "string" ? qs.toast : "";
-  const toastMessage =
-    toastCode === "guarantor-deleted"
-      ? "Guarantor deleted."
-      : null;
+  const toastMessage = toastCode === "guarantor-deleted" ? "Guarantor deleted." : null;
 
-  const applicant = await prisma.applicant.findUnique({
-    where: { id },
+  const applicant = await prisma.applicant.findFirst({
+    where: {
+      id,
+      userId: sessionUser.id,
+    },
     include: {
       property: true,
       referencing: true,
@@ -219,14 +235,30 @@ export default async function ApplicantDetailPage({
 
   if (!applicant) notFound();
 
-  const safeApplicant = applicant;
-
   async function saveApplicantControls(formData: FormData) {
     "use server";
 
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      redirect("/login");
+    }
+
+    const freshApplicant = await prisma.applicant.findFirst({
+      where: {
+        id,
+        userId: sessionUser.id,
+      },
+      include: {
+        property: true,
+        referencing: true,
+      },
+    });
+
+    if (!freshApplicant) notFound();
+
     const manualDecisionRaw = String(formData.get("manualDecision") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
-    const statusRaw = String(formData.get("status") ?? safeApplicant.status).trim();
+    const statusRaw = String(formData.get("status") ?? freshApplicant.status).trim();
     const manualDecisionReason = String(formData.get("manualDecisionReason") ?? "").trim();
 
     const allowedStatuses = new Set([
@@ -244,8 +276,8 @@ export default async function ApplicantDetailPage({
 
     const requestedStatus =
       normalizeApplicantStatus(statusRaw) && allowedStatuses.has(statusRaw)
-        ? (statusRaw as typeof safeApplicant.status)
-        : safeApplicant.status;
+        ? (statusRaw as typeof freshApplicant.status)
+        : freshApplicant.status;
 
     const manualDecision =
       manualDecisionRaw === "ACCEPT" ||
@@ -256,36 +288,37 @@ export default async function ApplicantDetailPage({
         : null;
 
     const currentRentMonthly = await getRent(
-      safeApplicant.propertyId,
-      safeApplicant.property?.advertisedRentMonthly ?? null,
+      sessionUser.id,
+      freshApplicant.propertyId,
+      freshApplicant.property?.advertisedRentMonthly ?? null,
     );
 
     const currentIncomeBreakdown = getIncomeBreakdownFromRawPayload(
-      safeApplicant.importRawPayload,
+      freshApplicant.importRawPayload,
     );
     const currentEffectiveIncome =
-      currentIncomeBreakdown.totalMonthlyPence ?? safeApplicant.monthlyIncome;
+      currentIncomeBreakdown.totalMonthlyPence ?? freshApplicant.monthlyIncome;
 
     const currentResult = computeReferencingScore({
       monthlyIncome: currentEffectiveIncome,
       rentMonthly: currentRentMonthly,
-      employmentStatus: safeApplicant.employmentStatus,
-      idProvided: safeApplicant.referencing?.idProvided,
-      rightToRentChecked: safeApplicant.referencing?.rightToRentChecked,
-      payslipsProvided: safeApplicant.referencing?.payslipsProvided,
-      bankStatementsProvided: safeApplicant.referencing?.bankStatementsProvided,
-      employmentReference: safeApplicant.referencing?.employmentReference,
-      landlordReference: safeApplicant.referencing?.landlordReference,
-      incomeVerified: safeApplicant.referencing?.incomeVerified,
-      creditCheckPassed: safeApplicant.referencing?.creditCheckPassed,
-      guarantorRequired: safeApplicant.referencing?.guarantorRequired,
+      employmentStatus: freshApplicant.employmentStatus,
+      idProvided: freshApplicant.referencing?.idProvided,
+      rightToRentChecked: freshApplicant.referencing?.rightToRentChecked,
+      payslipsProvided: freshApplicant.referencing?.payslipsProvided,
+      bankStatementsProvided: freshApplicant.referencing?.bankStatementsProvided,
+      employmentReference: freshApplicant.referencing?.employmentReference,
+      landlordReference: freshApplicant.referencing?.landlordReference,
+      incomeVerified: freshApplicant.referencing?.incomeVerified,
+      creditCheckPassed: freshApplicant.referencing?.creditCheckPassed,
+      guarantorRequired: freshApplicant.referencing?.guarantorRequired,
       guarantorProvided:
-        safeApplicant.referencing?.guarantorProvided ??
-        safeApplicant.canProvideGuarantor ??
+        freshApplicant.referencing?.guarantorProvided ??
+        freshApplicant.canProvideGuarantor ??
         false,
-      petInsuranceProvided: safeApplicant.referencing?.petInsuranceProvided,
-      hasPets: safeApplicant.hasPets,
-      savingsBufferMonths: safeApplicant.savingsBufferMonths,
+      petInsuranceProvided: freshApplicant.referencing?.petInsuranceProvided,
+      hasPets: freshApplicant.hasPets,
+      savingsBufferMonths: freshApplicant.savingsBufferMonths,
     });
 
     const currentSystemDecision = currentResult.decision;
@@ -297,47 +330,59 @@ export default async function ApplicantDetailPage({
 
     const currentEffectiveDecision: typeof currentBaseDecision = getDecisionWithGuarantor({
       currentDecision: currentBaseDecision,
-      guarantorRequired: safeApplicant.referencing?.guarantorRequired,
-      guarantorOutcome: safeApplicant.guarantorOutcome,
+      guarantorRequired: freshApplicant.referencing?.guarantorRequired,
+      guarantorOutcome: freshApplicant.guarantorOutcome,
     }) as typeof currentBaseDecision;
 
     const workflowGuardCode = await getWorkflowGuardCode({
-    requestedStatus,
-    currentStatus: safeApplicant.status,
-    effectiveDecision: currentEffectiveDecision,
-    applicantId: safeApplicant.id,
-    propertyId: safeApplicant.propertyId,
-  });
-
-    if (workflowGuardCode) {
-      redirect(`/applicants/${safeApplicant.id}?guard=${workflowGuardCode}`);
-    }
-
-    await prisma.applicant.update({
-      where: { id: safeApplicant.id },
-      data: {
-        notes: notes || null,
-        status: requestedStatus as typeof safeApplicant.status,
-        referencing: {
-          upsert: {
-            create: {
-              manualDecision,
-              manualDecisionReason: manualDecision ? manualDecisionReason || null : null,
-            },
-            update: {
-              manualDecision,
-              manualDecisionReason: manualDecision ? manualDecisionReason || null : null,
-            },
-          },
-        },
-      },
+      requestedStatus,
+      currentStatus: freshApplicant.status,
+      effectiveDecision: currentEffectiveDecision,
+      applicantId: freshApplicant.id,
+      propertyId: freshApplicant.propertyId,
+      userId: sessionUser.id,
     });
 
-    revalidatePath(`/applicants/${safeApplicant.id}`);
-    redirect(`/applicants/${safeApplicant.id}?saved=1`);
+    if (workflowGuardCode) {
+      redirect(`/applicants/${freshApplicant.id}?guard=${workflowGuardCode}`);
+    }
+
+    await prisma.$transaction([
+      prisma.applicant.updateMany({
+        where: {
+          id: freshApplicant.id,
+          userId: sessionUser.id,
+        },
+        data: {
+          notes: notes || null,
+          status: requestedStatus as typeof freshApplicant.status,
+        },
+      }),
+      prisma.referencingCheck.upsert({
+        where: {
+          applicantId: freshApplicant.id,
+        },
+        create: {
+          applicantId: freshApplicant.id,
+          manualDecision,
+          manualDecisionReason: manualDecision ? manualDecisionReason || null : null,
+        },
+        update: {
+          manualDecision,
+          manualDecisionReason: manualDecision ? manualDecisionReason || null : null,
+        },
+      }),
+    ]);
+
+    revalidatePath(`/applicants/${freshApplicant.id}`);
+    redirect(`/applicants/${freshApplicant.id}?saved=1`);
   }
 
-  const rentMonthly = await getRent(applicant.propertyId, applicant.property?.advertisedRentMonthly ?? null);
+  const rentMonthly = await getRent(
+    sessionUser.id,
+    applicant.propertyId,
+    applicant.property?.advertisedRentMonthly ?? null,
+  );
   const incomeBreakdown = getIncomeBreakdownFromRawPayload(applicant.importRawPayload);
   const effectiveIncome = incomeBreakdown.totalMonthlyPence ?? applicant.monthlyIncome;
 
@@ -481,7 +526,7 @@ export default async function ApplicantDetailPage({
           {guardMessage}
         </div>
       ) : null}
-      
+
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Affordability</h2>
@@ -529,7 +574,7 @@ export default async function ApplicantDetailPage({
             </div>
           </div>
         </div>
-        
+
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Screening</h2>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
@@ -587,16 +632,16 @@ export default async function ApplicantDetailPage({
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
+        <h2 className="text-lg font-semibold mb-2">Guarantor</h2>
 
-          <GuarantorSummaryCard
-            applicantId={applicant.id}
-            guarantors={applicant.guarantors}
-            guarantorRequired={applicant.guarantorRequired}
-            guarantorAvailable={applicant.guarantorAvailable}
-            guarantorOutcome={applicant.guarantorOutcome}
-          />
-        </div>
+        <GuarantorSummaryCard
+          applicantId={applicant.id}
+          guarantors={applicant.guarantors}
+          guarantorRequired={applicant.guarantorRequired}
+          guarantorAvailable={applicant.guarantorAvailable}
+          guarantorOutcome={applicant.guarantorOutcome}
+        />
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -902,6 +947,6 @@ export default async function ApplicantDetailPage({
         ) : null}
         <MessageTemplatesPanel drafts={drafts} applicantId={applicant.id} disabled={!applicant.email} />
       </div>
-    </div>    
+    </div>
   );
 }

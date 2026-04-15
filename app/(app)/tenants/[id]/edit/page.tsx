@@ -1,17 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
+import Link from "next/link";
+import { requireSessionUser } from "@/lib/auth";
 
-function parseOptionalDate(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const parsed = new Date(`${raw}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatDateInput(value?: Date | null) {
-  if (!value) return "";
-  return value.toISOString().slice(0, 10);
+function fmt(d: Date | null) {
+  return d ? d.toISOString().slice(0, 10) : "";
 }
 
 export default async function EditTenantPage({
@@ -19,140 +12,156 @@ export default async function EditTenantPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
-  const tenant = await prisma.tenant.findUnique({ where: { id } });
+
+  const tenant = await prisma.tenant.findFirst({
+    where: {
+      id,
+      userId: user.id,
+      deletedAt: null,
+    },
+  });
 
   if (!tenant) redirect("/tenants");
 
   async function updateTenant(formData: FormData) {
     "use server";
 
+    const currentUser = await requireSessionUser();
+
+    const ownedTenant = await prisma.tenant.findFirst({
+      where: {
+        id,
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!ownedTenant) redirect("/tenants");
+
     const fullName = String(formData.get("fullName") ?? "").trim();
-    const emailRaw = String(formData.get("email") ?? "").trim();
-    const phoneRaw = String(formData.get("phone") ?? "").trim();
-    const notesRaw = String(formData.get("notes") ?? "").trim();
-    const rightToRentExpiresOn = parseOptionalDate(formData.get("rightToRentExpiresOn"));
+    const email = String(formData.get("email") ?? "").trim() || null;
+    const phone = String(formData.get("phone") ?? "").trim() || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const rightToRentExpiresOnRaw = String(
+      formData.get("rightToRentExpiresOn") ?? "",
+    ).trim();
 
     if (!fullName) redirect(`/tenants/${id}/edit`);
 
-    await prisma.tenant.update({
-      where: { id, deletedAt: null },
+    await prisma.tenant.updateMany({
+      where: {
+        id,
+        userId: currentUser.id,
+        deletedAt: null,
+      },
       data: {
         fullName,
-        email: emailRaw || null,
-        phone: phoneRaw || null,
-        notes: notesRaw || null,
-        rightToRentExpiresOn,
+        email,
+        phone,
+        notes,
+        rightToRentExpiresOn: rightToRentExpiresOnRaw
+          ? new Date(rightToRentExpiresOnRaw)
+          : null,
       },
     });
 
     redirect("/tenants");
   }
 
-  async function deleteTenant() {
-    "use server";
-
-    await prisma.tenant.update({
-      where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
-    });
-
-    redirect("/tenants");
-  }
-
   return (
-    <div className="grid max-w-2xl gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">Edit tenant</h1>
-        <a
-          href="/tenants"
-          className="btn btn-secondary btn-sm"
-        >
-          ← Back
-        </a>
+    <div style={{ display: "grid", gap: 16, maxWidth: 720 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>
+            Edit tenant
+          </h1>
+          <div style={{ opacity: 0.75 }}>{tenant.fullName}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <Link href="/tenants" className="btn btn-secondary btn-sm">
+            Back
+          </Link>
+        </div>
       </div>
 
-      <form action={updateTenant} className="grid gap-3 rounded-xl border bg-white p-4">
-        <label className="grid gap-1 text-sm">
-          <span>Full name</span>
+      <form
+        action={updateTenant}
+        style={{
+          border: "1px solid #eee",
+          borderRadius: 8,
+          padding: 12,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <label>
+          Full name
           <input
             name="fullName"
             defaultValue={tenant.fullName}
-            className="rounded border px-3 py-2"
+            style={{ width: "100%" }}
             required
           />
         </label>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Email</span>
-            <input
-              name="email"
-              type="email"
-              defaultValue={tenant.email ?? ""}
-              className="rounded border px-3 py-2"
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Phone</span>
-            <input
-              name="phone"
-              defaultValue={tenant.phone ?? ""}
-              className="rounded border px-3 py-2"
-            />
-          </label>
-        </div>
-
-        <label className="grid gap-1 text-sm">
-          <span>Right to Rent expiry</span>
+        <label>
+          Email
           <input
-            name="rightToRentExpiresOn"
-            type="date"
-            defaultValue={formatDateInput(tenant.rightToRentExpiresOn)}
-            className="rounded border px-3 py-2"
+            name="email"
+            defaultValue={tenant.email ?? ""}
+            style={{ width: "100%" }}
           />
         </label>
 
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
+        <label>
+          Phone
+          <input
+            name="phone"
+            defaultValue={tenant.phone ?? ""}
+            style={{ width: "100%" }}
+          />
+        </label>
+
+        <label>
+          Right to Rent expiry
+          <input
+            type="date"
+            name="rightToRentExpiresOn"
+            defaultValue={fmt(tenant.rightToRentExpiresOn)}
+            style={{ width: "100%" }}
+          />
+        </label>
+
+        <label>
+          Notes
           <textarea
             name="notes"
-            rows={4}
             defaultValue={tenant.notes ?? ""}
-            className="rounded border px-3 py-2"
+            rows={4}
+            style={{ width: "100%" }}
           />
         </label>
 
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            className="btn btn-primary btn-sm"
-          >
+        <div style={{ display: "flex", gap: 10 }}>
+          <button type="submit" className="btn btn-primary btn-sm">
             Save
           </button>
 
-          <a
-            href="/tenants"
-            className="btn btn-secondary btn-sm"
-          >
+          <Link href="/tenants" className="btn btn-secondary btn-sm">
             Cancel
-          </a>
+          </Link>
         </div>
       </form>
-
-      <section className="rounded-xl border border-red-200 bg-red-50 p-4">
-        <h2 className="text-lg font-semibold text-red-800">Danger zone</h2>
-        <p className="mt-1 text-sm text-red-700">
-          Deleting a tenant removes them from any linked tenancies.
-        </p>
-
-        <form action={deleteTenant} className="mt-3">
-          <ConfirmSubmit confirmMessage="Delete this tenant? This cannot be undone.">
-            Delete tenant
-          </ConfirmSubmit>
-        </form>
-      </section>
     </div>
   );
 }
