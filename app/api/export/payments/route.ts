@@ -1,10 +1,32 @@
 import { prisma } from "@/lib/prisma";
 import { toCsv } from "@/lib/csv";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
+  const sessionUser = await getSessionUser();
+
+  if (!sessionUser) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const payments = await prisma.payment.findMany({
-    where: { deletedAt: null, tenancy: { deletedAt: null, property: { deletedAt: null } } },
-    include: { tenancy: { include: { property: true } } },
+    where: {
+      deletedAt: null,
+      tenancy: {
+        deletedAt: null,
+        property: {
+          deletedAt: null,
+          userId: sessionUser.id,
+        },
+      },
+    },
+    include: {
+      tenancy: {
+        include: {
+          property: true,
+        },
+      },
+    },
     orderBy: [{ dueDate: "asc" }],
   });
 

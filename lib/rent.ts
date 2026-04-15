@@ -18,9 +18,16 @@ export function getPaymentStatus(amountDue: number, amountPaid: number, dueDate:
   return dueDate <= asOf ? "UNPAID / LATE" : "UPCOMING";
 }
 
-export async function ensureRentScheduleForTenancy(tenancyId: string, asOf = new Date()) {
-  const tenancy = await prisma.tenancy.findUnique({
-    where: { id: tenancyId },
+export async function ensureRentScheduleForTenancy(userId: string, tenancyId: string, asOf = new Date()) {
+  const tenancy = await prisma.tenancy.findFirst({
+    where: {
+      id: tenancyId,
+      deletedAt: null,
+      property: {
+        userId,
+        deletedAt: null,
+      },
+    },
     include: {
       payments: {
         where: { deletedAt: null },
@@ -30,7 +37,7 @@ export async function ensureRentScheduleForTenancy(tenancyId: string, asOf = new
     },
   });
 
-  if (!tenancy || tenancy.deletedAt || !tenancy.isActive || !tenancy.autoGenerateRent) {
+  if (!tenancy || !tenancy.isActive || !tenancy.autoGenerateRent) {
     return { created: 0, tenancy: null as any };
   }
 
@@ -58,7 +65,10 @@ export async function ensureRentScheduleForTenancy(tenancyId: string, asOf = new
   }
 
   if (!dueDates.length) {
-    await prisma.tenancy.update({ where: { id: tenancy.id }, data: { lastRentGeneratedOn: new Date() } });
+    await prisma.tenancy.updateMany({
+      where: { id: tenancy.id },
+      data: { lastRentGeneratedOn: new Date() },
+    });
     return { created: 0, tenancy };
   }
 
@@ -85,19 +95,31 @@ export async function ensureRentScheduleForTenancy(tenancyId: string, asOf = new
     await prisma.payment.createMany({ data: rows });
   }
 
-  await prisma.tenancy.update({ where: { id: tenancy.id }, data: { lastRentGeneratedOn: new Date() } });
+  await prisma.tenancy.updateMany({
+    where: { id: tenancy.id },
+    data: { lastRentGeneratedOn: new Date() },
+  });
+
   return { created: rows.length, tenancy };
 }
 
-export async function ensureRentSchedulesForAllActiveTenancies(asOf = new Date()) {
+export async function ensureRentSchedulesForAllActiveTenancies(userId: string, asOf = new Date()) {
   const ids = await prisma.tenancy.findMany({
-    where: { isActive: true, deletedAt: null, autoGenerateRent: true },
+    where: {
+      isActive: true,
+      deletedAt: null,
+      autoGenerateRent: true,
+      property: {
+        userId,
+        deletedAt: null,
+      },
+    },
     select: { id: true },
   });
 
   let created = 0;
   for (const t of ids) {
-    const res = await ensureRentScheduleForTenancy(t.id, asOf);
+    const res = await ensureRentScheduleForTenancy(userId, t.id, asOf);
     created += res.created;
   }
   return { tenanciesProcessed: ids.length, paymentsCreated: created };

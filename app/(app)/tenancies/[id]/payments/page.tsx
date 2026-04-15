@@ -29,7 +29,7 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
 
   if (!ownedTenancy) redirect("/tenancies");
 
-  await ensureRentScheduleForTenancy(id, new Date());
+  await ensureRentScheduleForTenancy(currentUser.id, id, new Date());
 
   const tenancy = await prisma.tenancy.findFirst({
     where: {

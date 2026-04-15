@@ -41,7 +41,7 @@ export default async function TenancyDetailPage({
 
   if (!ownedTenancy) redirect("/tenancies");
 
-  await ensureRentScheduleForTenancy(id, new Date());
+  await ensureRentScheduleForTenancy(user.id, id, new Date());
 
   const tenancyResult = await prisma.tenancy.findFirst({
     where: {
@@ -355,7 +355,7 @@ export default async function TenancyDetailPage({
 
     if (!owned) redirect("/tenancies");
 
-    await ensureRentScheduleForTenancy(id, new Date());
+    await ensureRentScheduleForTenancy(currentUser.id, id, new Date());
     redirect(`/tenancies/${id}`);
   }
 
@@ -384,7 +384,7 @@ export default async function TenancyDetailPage({
       },
     });
 
-    if (autoGenerateRent) await ensureRentScheduleForTenancy(id, new Date());
+    if (autoGenerateRent) await ensureRentScheduleForTenancy(currentUser.id, id, new Date());
     redirect(`/tenancies/${id}`);
   }
 

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
+import { requireSessionUser } from "@/lib/auth";
 
 function fmt(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -11,10 +12,20 @@ export default async function EditNoticePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const noticeResult = await prisma.notice.findUnique({
-    where: { id, deletedAt: null },
+  const noticeResult = await prisma.notice.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+      tenancy: {
+        property: {
+          userId: user.id,
+          deletedAt: null,
+        },
+      },
+    },
     include: { tenancy: { include: { property: true } } },
   });
 
@@ -25,6 +36,24 @@ export default async function EditNoticePage({
   async function updateNotice(formData: FormData) {
     "use server";
 
+    const user = await requireSessionUser();
+
+    const owned = await prisma.notice.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        tenancy: {
+          property: {
+            userId: user.id,
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!owned) redirect("/notices");
+
     const type = String(formData.get("type") ?? "OTHER");
     const dateServed = String(formData.get("dateServed") ?? "").trim();
     const method = String(formData.get("method") ?? "OTHER");
@@ -32,8 +61,8 @@ export default async function EditNoticePage({
 
     if (!dateServed) redirect(`/notices/${id}/edit`);
 
-    await prisma.notice.update({
-      where: { id, deletedAt: null },
+    await prisma.notice.updateMany({
+      where: { id },
       data: {
         type: type as any,
         dateServed: new Date(dateServed),
@@ -48,14 +77,30 @@ export default async function EditNoticePage({
   async function deleteNotice() {
     "use server";
 
-    const tenancyId = notice.tenancyId;
+    const user = await requireSessionUser();
 
-    await prisma.notice.update({
-      where: { id, deletedAt: null },
+    const owned = await prisma.notice.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        tenancy: {
+          property: {
+            userId: user.id,
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!owned) redirect("/notices");
+
+    await prisma.notice.updateMany({
+      where: { id },
       data: { deletedAt: new Date() },
     });
 
-    redirect(`/tenancies/${tenancyId}`);
+    redirect(`/tenancies/${notice.tenancyId}`);
   }
 
   return (
