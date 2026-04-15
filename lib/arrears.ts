@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 
-export async function getTotalArrears(asOf = new Date()) {
+export async function getTotalArrears(userId: string, asOf = new Date()) {
   const payments = await prisma.payment.findMany({
     where: {
       dueDate: { lte: asOf },
@@ -8,6 +8,9 @@ export async function getTotalArrears(asOf = new Date()) {
       tenancy: {
         isActive: true,
         deletedAt: null,
+        property: {
+          userId,
+        },
       },
     },
     select: {
@@ -22,12 +25,21 @@ export async function getTotalArrears(asOf = new Date()) {
   }, 0);
 }
 
-export async function getTenancyArrears(tenancyId: string, asOf = new Date()) {
+export async function getTenancyArrears(
+  userId: string,
+  tenancyId: string,
+  asOf = new Date()
+) {
   const payments = await prisma.payment.findMany({
     where: {
       tenancyId,
       deletedAt: null,
       dueDate: { lte: asOf },
+      tenancy: {
+        property: {
+          userId,
+        },
+      },
     },
     select: {
       amountDue: true,
@@ -41,14 +53,23 @@ export async function getTenancyArrears(tenancyId: string, asOf = new Date()) {
   }, 0);
 }
 
-export async function isSection8Eligible(tenancyId: string, asOf = new Date()) {
-  const tenancy = await prisma.tenancy.findUnique({
-    where: { id: tenancyId },
+export async function isSection8Eligible(
+  userId: string,
+  tenancyId: string,
+  asOf = new Date()
+) {
+  const tenancy = await prisma.tenancy.findFirst({
+    where: {
+      id: tenancyId,
+      property: {
+        userId,
+      },
+    },
     select: { isActive: true, rentMonthly: true },
   });
 
   if (!tenancy?.isActive) return false;
 
-  const arrears = await getTenancyArrears(tenancyId, asOf);
+  const arrears = await getTenancyArrears(userId, tenancyId, asOf);
   return arrears >= 2 * tenancy.rentMonthly;
 }

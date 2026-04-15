@@ -18,11 +18,12 @@ export type ActionItem = {
 };
 
 export async function buildWeeklyActionList(
+  userId: string,
   asOf = new Date(),
 ): Promise<ActionItem[]> {
   const [properties, tenancies] = await Promise.all([
     prisma.property.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, userId },
       include: {
         compliance: { where: { deletedAt: null } },
         inspections: { where: { deletedAt: null } },
@@ -32,7 +33,11 @@ export async function buildWeeklyActionList(
     }),
 
     prisma.tenancy.findMany({
-      where: { isActive: true, deletedAt: null },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        property: { userId },
+      },
       include: {
         property: { select: { id: true, name: true } },
         tenants: {
@@ -155,10 +160,10 @@ export async function buildWeeklyActionList(
   }
 
   for (const t of tenancies) {
-    const arrears = await getTenancyArrears(t.id, asOf);
+    const arrears = await getTenancyArrears(userId, t.id, asOf);
 
     if (arrears > 0) {
-      const s8 = await isSection8Eligible(t.id, asOf);
+      const s8 = await isSection8Eligible(userId, t.id, asOf);
 
       actions.push({
         key: `ARREARS:${t.id}`,

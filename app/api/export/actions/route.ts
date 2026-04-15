@@ -1,8 +1,15 @@
 import { buildWeeklyActionList } from "@/lib/actions";
 import { toCsv } from "@/lib/csv";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
-  const actions = await buildWeeklyActionList(new Date());
+  const sessionUser = await getSessionUser();
+
+  if (!sessionUser) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const actions = await buildWeeklyActionList(sessionUser.id, new Date());
 
   const rows = actions.map((a) => ({
     category: a.category,
@@ -14,7 +21,7 @@ export async function GET() {
     propertyId: a.propertyId ?? "",
     tenancyId: a.tenancyId ?? "",
     note: a.note ?? "",
-    snoozedUntil: a.snoozedUntil ? a.snoozedUntil.toISOString().slice(0,10) : "",
+    snoozedUntil: a.snoozedUntil ? a.snoozedUntil.toISOString().slice(0, 10) : "",
   }));
 
   const csv = toCsv(rows);

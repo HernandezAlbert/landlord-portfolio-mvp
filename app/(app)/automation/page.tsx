@@ -5,21 +5,30 @@ import { sendEmailSafe } from "@/lib/email";
 import SubmitButton from "@/components/SubmitButton";
 import { buildMissingDocumentEmail, getUploadedApplicantDocs } from "@/lib/applicant-documents";
 import { redirect } from "next/navigation";
+import { getSessionUser } from "@/lib/auth";
 
 function fmtDate(d?: Date | null) {
   return d ? d.toISOString().slice(0, 10) : "—";
 }
 
 export default async function AutomationPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) redirect("/login");
+
   const qs = (await searchParams) ?? {};
   const sent = typeof qs.sent === "string" ? qs.sent : "";
   const error = typeof qs.error === "string" ? decodeURIComponent(qs.error) : "";
   const successDetail = typeof qs.detail === "string" ? decodeURIComponent(qs.detail) : "";
   const config = (await prisma.reminderConfig.findFirst()) ?? (await prisma.reminderConfig.create({ data: {} }));
-  const preview = await buildLandlordDigest(new Date());
+  const preview = await buildLandlordDigest(sessionUser.id, new Date());
   const emailLogs = await prisma.emailLog.findMany({ orderBy: { createdAt: "desc" }, take: 12 });
   const applicants = await prisma.applicant.findMany({
-    where: { deletedAt: null, email: { not: null }, status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] } },
+    where: {
+      userId: sessionUser.id,
+      deletedAt: null,
+      email: { not: null },
+      status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] },
+    },
     include: { property: true, referencing: true },
     orderBy: { createdAt: "desc" },
     take: 20,
@@ -47,6 +56,10 @@ export default async function AutomationPage({ searchParams }: { searchParams?: 
 
   async function saveConfig(formData: FormData) {
     "use server";
+
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) redirect("/login");
+
     const enabled = formData.get("enabled") === "on";
     const dailyEnabled = formData.get("dailyEnabled") === "on";
     const weeklyEnabled = formData.get("weeklyEnabled") === "on";
@@ -65,24 +78,41 @@ export default async function AutomationPage({ searchParams }: { searchParams?: 
 
   async function sendDigestNow(formData: FormData) {
     "use server";
+
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) redirect("/login");
+
     const digestType = String(formData.get("digestType") ?? "daily");
     const to = process.env.EMAIL_TO;
-    if (!to) redirect(`/automation?error=${encodeURIComponent("Email could not be sent because EMAIL_TO is not set in your .env file.")}`);
-    const digest = await buildLandlordDigest(new Date());
+    if (!to) {
+      redirect(`/automation?error=${encodeURIComponent("Email could not be sent because EMAIL_TO is not set in your .env file.")}`);
+    }
+
+    const digest = await buildLandlordDigest(sessionUser.id, new Date());
     const result = await sendEmailSafe({
       to,
       subject: `Landlord Portfolio — ${digestType === "weekly" ? "Weekly" : "Daily"} digest`,
       html: digest.html,
       text: digest.text,
     });
+
     if (!result.ok) redirect(`/automation?error=${encodeURIComponent(result.error)}`);
     redirect(`/automation?sent=${digestType}`);
   }
 
   async function sendMissingDocReminders() {
     "use server";
+
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) redirect("/login");
+
     const records = await prisma.applicant.findMany({
-      where: { deletedAt: null, email: { not: null }, status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] } },
+      where: {
+        userId: sessionUser.id,
+        deletedAt: null,
+        email: { not: null },
+        status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] },
+      },
       include: { property: true, referencing: true },
     });
 
@@ -100,7 +130,14 @@ export default async function AutomationPage({ searchParams }: { searchParams?: 
         hasPets: applicant.hasPets,
       });
       if (!draft.missingItems.length || !applicant.email) continue;
-      const result = await sendEmailSafe({ to: applicant.email, subject: draft.subject, text: draft.text, html: draft.html });
+
+      const result = await sendEmailSafe({
+        to: applicant.email,
+        subject: draft.subject,
+        text: draft.text,
+        html: draft.html,
+      });
+
       if (result.ok) sentCount += 1;
       else {
         failedCount += 1;

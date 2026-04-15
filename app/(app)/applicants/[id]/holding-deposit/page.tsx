@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import { getSessionUser } from "@/lib/auth";
 import { HoldingDepositStatus } from "@prisma/client";
 import { notFound, redirect } from "next/navigation";
 
 async function getRent(
+  userId: string,
   propertyId: string | null | undefined,
   advertisedRentMonthly: number | null
 ) {
@@ -14,6 +16,9 @@ async function getRent(
       propertyId,
       isActive: true,
       deletedAt: null,
+      property: {
+        userId,
+      },
     },
     orderBy: { startDate: "desc" },
   });
@@ -43,11 +48,19 @@ export default async function ApplicantHoldingDepositPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ status?: string }>;
 }) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    redirect("/login");
+  }
+
   const { id } = await params;
   await searchParams;
 
-  const applicant = await prisma.applicant.findUnique({
-    where: { id },
+  const applicant = await prisma.applicant.findFirst({
+    where: {
+      id,
+      userId: sessionUser.id,
+    },
     include: {
       property: true,
       holdingDeposit: true,
@@ -57,6 +70,7 @@ export default async function ApplicantHoldingDepositPage({
   if (!applicant) notFound();
 
   const rentMonthly = await getRent(
+    sessionUser.id,
     applicant.propertyId,
     applicant.property?.advertisedRentMonthly ?? null
   );
@@ -67,6 +81,11 @@ export default async function ApplicantHoldingDepositPage({
   async function saveHoldingDeposit(formData: FormData) {
     "use server";
 
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      redirect("/login");
+    }
+
     const applicantId = String(formData.get("applicantId") ?? "").trim();
     const amountPounds = Number(formData.get("amountRequested") ?? 0);
     const receivedDateRaw = String(formData.get("receivedAt") ?? "").trim();
@@ -76,8 +95,11 @@ export default async function ApplicantHoldingDepositPage({
       redirect(`/applicants/${id}/holding-deposit`);
     }
 
-    const freshApplicant = await prisma.applicant.findUnique({
-      where: { id: applicantId },
+    const freshApplicant = await prisma.applicant.findFirst({
+      where: {
+        id: applicantId,
+        userId: sessionUser.id,
+      },
       include: { property: true },
     });
 
@@ -88,6 +110,7 @@ export default async function ApplicantHoldingDepositPage({
     const amountRequestedPence = Math.round(amountPounds * 100);
 
     const resolvedRentMonthly = await getRent(
+      sessionUser.id,
       freshApplicant.propertyId,
       freshApplicant.property?.advertisedRentMonthly ?? null
     );
@@ -100,14 +123,18 @@ export default async function ApplicantHoldingDepositPage({
       ? new Date(deadlineRaw)
       : defaultDeadlineFromReceived(receivedAt);
 
-    const existing = await prisma.holdingDeposit.findUnique({
-      where: { applicantId },
+    const existing = await prisma.holdingDeposit.findFirst({
+      where: {
+        applicantId,
+      },
       select: { id: true },
     });
 
     if (existing) {
-      await prisma.holdingDeposit.update({
-        where: { applicantId },
+      await prisma.holdingDeposit.updateMany({
+        where: {
+          applicantId,
+        },
         data: {
           amountRequestedPence,
           amountReceivedPence: amountRequestedPence,

@@ -7,7 +7,7 @@ import {
   getUploadedApplicantDocs,
 } from "@/lib/applicant-documents";
 
-export async function buildLandlordDigest(asOf = new Date()) {
+export async function buildLandlordDigest(userId: string, asOf = new Date()) {
   const soon = new Date(asOf);
   soon.setDate(soon.getDate() + 30);
 
@@ -23,15 +23,32 @@ export async function buildLandlordDigest(asOf = new Date()) {
     applicants,
     rightToRentSoon,
   ] = await Promise.all([
-    buildWeeklyActionList(asOf),
-    getTotalArrears(asOf),
+    buildWeeklyActionList(userId, asOf),
+    getTotalArrears(userId, asOf),
     prisma.tenancy.findMany({
-      where: { isActive: true, deletedAt: null },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        property: {
+          userId,
+          deletedAt: null,
+        },
+      },
       select: { rentMonthly: true },
     }),
 
     prisma.contactLog.findMany({
-      where: { deletedAt: null, nextFollowUp: { not: null, lte: asOf } },
+      where: {
+        deletedAt: null,
+        nextFollowUp: { not: null, lte: asOf },
+        tenancy: {
+          deletedAt: null,
+          property: {
+            userId,
+            deletedAt: null,
+          },
+        },
+      },
       orderBy: { nextFollowUp: "asc" },
       take: 20,
       include: {
@@ -52,6 +69,10 @@ export async function buildLandlordDigest(asOf = new Date()) {
         tenancy: {
           isActive: true,
           deletedAt: null,
+          property: {
+            userId,
+            deletedAt: null,
+          },
         },
       },
       include: {
@@ -84,6 +105,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
           lte: soon,
         },
         property: {
+          userId,
           deletedAt: null,
         },
       },
@@ -101,6 +123,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
           lte: soon,
         },
         property: {
+          userId,
           deletedAt: null,
         },
       },
@@ -111,6 +134,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
 
     prisma.property.findMany({
       where: {
+        userId,
         deletedAt: null,
         propertyLicenseExpiresOn: {
           not: null,
@@ -128,6 +152,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
 
     prisma.applicant.findMany({
       where: {
+        userId,
         deletedAt: null,
         status: { in: ["APPLIED", "REFERENCING", "MORE_INFO_REQUESTED"] },
       },
@@ -138,6 +163,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
 
     prisma.tenant.findMany({
       where: {
+        userId,
         deletedAt: null,
         rightToRentExpiresOn: {
           not: null,
@@ -158,7 +184,7 @@ export async function buildLandlordDigest(asOf = new Date()) {
     const subject = (f.subject || "").toLowerCase();
 
     if (subject.includes("arrears")) {
-      const arrears = await getTenancyArrears(f.tenancy.id, asOf);
+      const arrears = await getTenancyArrears(userId, f.tenancy.id, asOf);
       if (arrears <= 0) continue;
     }
 

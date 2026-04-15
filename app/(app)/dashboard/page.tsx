@@ -1,32 +1,51 @@
 import Link from "next/link";
+import { getSessionUser } from "@/lib/auth";
 import { buildWeeklyActionList } from "@/lib/actions";
 import { getTotalArrears, isSection8Eligible } from "@/lib/arrears";
 import { getPortfolioFinanceSummary, money } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 import StatCard from "@/components/StatCard";
 import ClickableActionRow from "@/components/ClickableActionRow";
+import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    redirect("/login");
+  }
+
   const today = new Date();
 
   const [activeTenancies, totalArrears, actions, finance] = await Promise.all([
     prisma.tenancy.findMany({
-      where: { isActive: true, deletedAt: null },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        property: {
+          userId: sessionUser.id,
+        },
+      },
       select: {
         id: true,
         rentMonthly: true,
         property: { select: { id: true, name: true } },
       },
     }),
-    getTotalArrears(today),
-    buildWeeklyActionList(today),
-    getPortfolioFinanceSummary(today),
+    getTotalArrears(sessionUser.id, today),
+    buildWeeklyActionList(sessionUser.id, today),
+    getPortfolioFinanceSummary(sessionUser.id, today),
   ]);
 
   const monthlyRent = activeTenancies.reduce((s, t) => s + t.rentMonthly, 0);
   const redCount = actions.filter((a) => a.rag === "RED").length;
   const rightToRentDueCount = actions.filter((a) => a.category === "TENANT").length;
-  const s8Flags = await Promise.all(activeTenancies.map((t) => isSection8Eligible(t.id, today)));
+
+  const s8Flags = await Promise.all(
+    activeTenancies.map((t) =>
+      isSection8Eligible(sessionUser.id, t.id, today)
+    )
+  );
+
   const s8Count = s8Flags.filter(Boolean).length;
 
   return (

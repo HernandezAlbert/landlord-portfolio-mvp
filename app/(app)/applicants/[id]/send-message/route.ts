@@ -1,20 +1,35 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { buildApplicantMessageDraft, paragraphize, type ApplicantMessageTemplateKey } from "@/lib/applicant-messaging";
+import { getSessionUser } from "@/lib/auth";
+import {
+  buildApplicantMessageDraft,
+  paragraphize,
+  type ApplicantMessageTemplateKey,
+} from "@/lib/applicant-messaging";
 import { sendEmailSafe } from "@/lib/email";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    return NextResponse.redirect(new URL("/login", request.url), 303);
+  }
+
   const { id } = await params;
   const formData = await request.formData();
-
   const template = String(formData.get("template") ?? "") as ApplicantMessageTemplateKey;
-  const applicant = await prisma.applicant.findUnique({
-    where: { id },
-    include: { property: true },
+
+  const applicant = await prisma.applicant.findFirst({
+    where: {
+      id,
+      userId: sessionUser.id,
+    },
+    include: {
+      property: true,
+    },
   });
 
   if (!applicant) {
@@ -23,7 +38,12 @@ export async function POST(
 
   if (!applicant.email) {
     return NextResponse.redirect(
-      new URL(`/applicants/${id}?messageError=${encodeURIComponent("Add an email address before sending applicant messages.")}`, request.url),
+      new URL(
+        `/applicants/${id}?messageError=${encodeURIComponent(
+          "Add an email address before sending applicant messages.",
+        )}`,
+        request.url,
+      ),
       303,
     );
   }
@@ -41,23 +61,34 @@ export async function POST(
 
   if (!result.ok) {
     return NextResponse.redirect(
-      new URL(`/applicants/${id}?messageError=${encodeURIComponent(result.error)}`, request.url),
+      new URL(
+        `/applicants/${id}?messageError=${encodeURIComponent(result.error)}`,
+        request.url,
+      ),
       303,
     );
   }
 
   if (draft.statusAfterSend) {
-    await prisma.applicant.update({
-      where: { id },
-      data: { status: draft.statusAfterSend },
+    await prisma.applicant.updateMany({
+      where: {
+        id: applicant.id,
+        userId: sessionUser.id,
+      },
+      data: {
+        status: draft.statusAfterSend,
+      },
     });
   }
 
   revalidatePath(`/applicants/${id}`);
-  revalidatePath(`/applicants`);
+  revalidatePath("/applicants");
 
   return NextResponse.redirect(
-    new URL(`/applicants/${id}?messageSent=${encodeURIComponent(`${draft.label} email sent.`)}`, request.url),
+    new URL(
+      `/applicants/${id}?messageSent=${encodeURIComponent(`${draft.label} email sent.`)}`,
+      request.url,
+    ),
     303,
   );
 }

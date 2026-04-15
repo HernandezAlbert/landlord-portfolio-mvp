@@ -88,7 +88,7 @@ export default async function TenancyDetailPage({
     ]);
 
   const asOf = new Date();
-  const arrears = await getTenancyArrears(tenancy.id, asOf);
+  const arrears = await getTenancyArrears(user.id, tenancy.id, asOf);
   const existingTenantIds = new Set(tenancy.tenants.map((tt) => tt.tenantId));
   const availableToAdd = allTenants.filter((t) => !existingTenantIds.has(t.id));
 
@@ -316,7 +316,7 @@ export default async function TenancyDetailPage({
 
     if (!owned) redirect("/tenancies");
 
-    const currentArrears = await getTenancyArrears(owned.id, new Date());
+    const currentArrears = await getTenancyArrears(currentUser.id, owned.id, new Date());
     const emails = owned.tenants
       .map((t) => t.tenant.email)
       .filter(Boolean) as string[];
@@ -395,6 +395,23 @@ export default async function TenancyDetailPage({
     const isActive = String(formData.get("isActive") ?? "true") === "true";
     const endDate = String(formData.get("endDate") ?? "").trim();
 
+    const owned = await prisma.tenancy.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        property: {
+          userId: currentUser.id,
+          deletedAt: null,
+        },
+      },
+      select: {
+        id: true,
+        endDate: true,
+      },
+    });
+
+    if (!owned) redirect("/tenancies");
+
     await prisma.tenancy.updateMany({
       where: {
         id,
@@ -409,7 +426,7 @@ export default async function TenancyDetailPage({
           ? new Date(endDate)
           : isActive
             ? null
-            : tenancy.endDate,
+            : owned.endDate,
       },
     });
 

@@ -5,17 +5,41 @@ import { money } from "@/lib/finance";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
+import { requireSessionUser } from "@/lib/auth";
 
 function fmt(d: Date | null | undefined) {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
 export default async function TenancyPaymentsPage({ params }: { params: Promise<{ id: string }> }) {
+  const currentUser = await requireSessionUser();
   const { id } = await params;
+
+  const ownedTenancy = await prisma.tenancy.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+      property: {
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+    },
+    select: { id: true },
+  });
+
+  if (!ownedTenancy) redirect("/tenancies");
+
   await ensureRentScheduleForTenancy(id, new Date());
 
   const tenancy = await prisma.tenancy.findFirst({
-    where: { id, deletedAt: null },
+    where: {
+      id,
+      deletedAt: null,
+      property: {
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+    },
     include: {
       property: true,
       tenants: { include: { tenant: true } },
@@ -29,17 +53,35 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
   if (!tenancy) redirect("/tenancies");
 
   const today = new Date();
-  const arrears = await getTenancyArrears(id, today);
+  const arrears = await getTenancyArrears(currentUser.id, id, today);
   const tenantNames = tenancy.tenants.map((tt) => tt.tenant.fullName).join(", ") || "No tenants";
 
   async function addPaymentLine(formData: FormData) {
     "use server";
+
+    const currentUser = await requireSessionUser();
+
+    const owned = await prisma.tenancy.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        property: {
+          userId: currentUser.id,
+          deletedAt: null,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!owned) redirect("/tenancies");
+
     const dueDate = String(formData.get("dueDate") ?? "").trim();
     const amountDue = Number(formData.get("amountDue") ?? 0);
     const amountPaid = Number(formData.get("amountPaid") ?? 0);
     const paidDate = String(formData.get("paidDate") ?? "").trim();
     const method = String(formData.get("method") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
+
     if (!dueDate || !amountDue) redirect(`/tenancies/${id}/payments`);
 
     await prisma.payment.create({
@@ -59,8 +101,28 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
 
   async function updatePaymentLine(formData: FormData) {
     "use server";
+
+    const currentUser = await requireSessionUser();
     const paymentId = String(formData.get("paymentId") ?? "");
     if (!paymentId) redirect(`/tenancies/${id}/payments`);
+
+    const ownedPayment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        deletedAt: null,
+        tenancy: {
+          id,
+          deletedAt: null,
+          property: {
+            userId: currentUser.id,
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!ownedPayment) redirect("/tenancies");
 
     const amountDue = Number(formData.get("amountDue") ?? 0);
     const amountPaid = Number(formData.get("amountPaid") ?? 0);
@@ -68,7 +130,7 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
     const method = String(formData.get("method") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
 
-    await prisma.payment.update({
+    await prisma.payment.updateMany({
       where: { id: paymentId },
       data: {
         amountDue: Math.round(amountDue * 100),
@@ -84,12 +146,33 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
 
   async function markFullyPaid(formData: FormData) {
     "use server";
+
+    const currentUser = await requireSessionUser();
     const paymentId = String(formData.get("paymentId") ?? "");
     if (!paymentId) redirect(`/tenancies/${id}/payments`);
-    const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
-    if (!payment) redirect(`/tenancies/${id}/payments`);
 
-    await prisma.payment.update({
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        deletedAt: null,
+        tenancy: {
+          id,
+          deletedAt: null,
+          property: {
+            userId: currentUser.id,
+            deletedAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        amountDue: true,
+      },
+    });
+
+    if (!payment) redirect("/tenancies");
+
+    await prisma.payment.updateMany({
       where: { id: paymentId },
       data: { amountPaid: payment.amountDue, paidDate: new Date() },
     });
@@ -99,9 +182,34 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
 
   async function archivePayment(formData: FormData) {
     "use server";
+
+    const currentUser = await requireSessionUser();
     const paymentId = String(formData.get("paymentId") ?? "");
     if (!paymentId) redirect(`/tenancies/${id}/payments`);
-    await prisma.payment.update({ where: { id: paymentId }, data: { deletedAt: new Date() } });
+
+    const ownedPayment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        deletedAt: null,
+        tenancy: {
+          id,
+          deletedAt: null,
+          property: {
+            userId: currentUser.id,
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!ownedPayment) redirect("/tenancies");
+
+    await prisma.payment.updateMany({
+      where: { id: paymentId },
+      data: { deletedAt: new Date() },
+    });
+
     redirect(`/tenancies/${id}/payments`);
   }
 

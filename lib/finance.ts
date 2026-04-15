@@ -12,19 +12,40 @@ export function money(pence: number | null | undefined) {
   return `£${(((pence ?? 0) as number) / 100).toFixed(2)}`;
 }
 
-export async function getPortfolioFinanceSummary(asOf = new Date()) {
+export async function getPortfolioFinanceSummary(userId: string, asOf = new Date()) {
   const monthStart = startOfUtcMonth(asOf);
   const nextMonthStart = endOfUtcMonthExclusive(asOf);
 
-  const [activeTenancies, dueThisMonthAgg, receivedThisMonthAgg, expensesThisMonthAgg, activeMortgages, overduePayments] = await Promise.all([
+  const [
+    activeTenancies,
+    dueThisMonthAgg,
+    receivedThisMonthAgg,
+    expensesThisMonthAgg,
+    activeMortgages,
+    overduePayments,
+  ] = await Promise.all([
     prisma.tenancy.findMany({
-      where: { isActive: true, deletedAt: null, property: { deletedAt: null } },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        property: {
+          deletedAt: null,
+          userId,
+        },
+      },
       select: { id: true, rentMonthly: true, propertyId: true },
     }),
     prisma.payment.aggregate({
       where: {
         deletedAt: null,
-        tenancy: { deletedAt: null, isActive: true, property: { deletedAt: null } },
+        tenancy: {
+          deletedAt: null,
+          isActive: true,
+          property: {
+            deletedAt: null,
+            userId,
+          },
+        },
         dueDate: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { amountDue: true, amountPaid: true },
@@ -32,7 +53,13 @@ export async function getPortfolioFinanceSummary(asOf = new Date()) {
     prisma.payment.aggregate({
       where: {
         deletedAt: null,
-        tenancy: { deletedAt: null, property: { deletedAt: null } },
+        tenancy: {
+          deletedAt: null,
+          property: {
+            deletedAt: null,
+            userId,
+          },
+        },
         paidDate: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { amountPaid: true },
@@ -40,20 +67,36 @@ export async function getPortfolioFinanceSummary(asOf = new Date()) {
     prisma.expense.aggregate({
       where: {
         deletedAt: null,
-        property: { deletedAt: null },
+        property: {
+          deletedAt: null,
+          userId,
+        },
         date: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { amount: true },
     }),
     prisma.mortgageDetail.findMany({
-      where: { deletedAt: null, property: { deletedAt: null } },
+      where: {
+        deletedAt: null,
+        property: {
+          deletedAt: null,
+          userId,
+        },
+      },
       select: { monthlyPayment: true },
     }),
     prisma.payment.findMany({
       where: {
         deletedAt: null,
         dueDate: { lte: asOf },
-        tenancy: { deletedAt: null, isActive: true, property: { deletedAt: null } },
+        tenancy: {
+          deletedAt: null,
+          isActive: true,
+          property: {
+            deletedAt: null,
+            userId,
+          },
+        },
       },
       include: {
         tenancy: { include: { property: true, tenants: { include: { tenant: true } } } },
@@ -89,12 +132,15 @@ export async function getPortfolioFinanceSummary(asOf = new Date()) {
   };
 }
 
-export async function getPropertyFinanceRows(asOf = new Date()) {
+export async function getPropertyFinanceRows(userId: string, asOf = new Date()) {
   const monthStart = startOfUtcMonth(asOf);
   const nextMonthStart = endOfUtcMonthExclusive(asOf);
 
   const properties = await prisma.property.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      userId,
+    },
     include: {
       mortgage: true,
       tenancies: {
