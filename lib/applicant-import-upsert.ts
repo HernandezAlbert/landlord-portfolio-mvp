@@ -7,7 +7,7 @@ import {
   applicantLooksDuplicate,
   type DuplicateApplicantCandidate,
 } from "@/lib/applicant-import-utils";
-import { recalculateApplicant } from "@/lib/applicant-recalculation";
+import { recalculateApplicantForUser } from "@/lib/applicant-recalculation";
 
 export type ImportedApplicantUpsertOutcome = {
   applicantId: string;
@@ -25,6 +25,8 @@ type UpsertArgs = {
   existingApplicants: DuplicateApplicantCandidate[];
 };
 
+type ScreeningResult = ReturnType<typeof screenImportedApplicant>;
+
 function toSubmittedDate(value?: Date | string | null) {
   return value ? new Date(value) : null;
 }
@@ -32,7 +34,7 @@ function toSubmittedDate(value?: Date | string | null) {
 function buildApplicantUpdateData(args: {
   propertyId: string | null;
   row: ImportedApplicantPayload;
-  screening: ReturnType<typeof screenImportedApplicant>;
+  screening: ScreeningResult;
   importSource: "GOOGLE_FORM" | "GOOGLE_FORM_AUTO";
 }) {
   const { propertyId, row, screening, importSource } = args;
@@ -41,7 +43,7 @@ function buildApplicantUpdateData(args: {
     fullName: row.fullName,
     email: row.email,
     phone: row.phone,
-    property: propertyId ? { connect: { id: propertyId } } : { disconnect: true },
+    propertyId,
     employmentStatus: row.employmentStatus,
     monthlyIncome: row.monthlyIncome,
     requestedMoveIn: row.requestedMoveIn,
@@ -59,30 +61,38 @@ function buildApplicantUpdateData(args: {
     screeningReason: screening.screeningReason,
     screeningScore: screening.score,
     canProvideGuarantor: row.canProvideGuarantor,
-    referencing: {
-      upsert: {
-        create: {
-          creditCheckPassed: screening.creditCheckPassed,
-          guarantorRequired: screening.guarantorRequired,
-          guarantorProvided: row.canProvideGuarantor === true,
-          petInsuranceProvided: row.petInsurance ?? false,
-          landlordReference: row.landlordReferenceAvailable ?? false,
-          score: screening.score,
-          decision: screening.decision,
-          risks: screening.reasons.join("\n"),
-        },
-        update: {
-          guarantorRequired: screening.guarantorRequired,
-          guarantorProvided: row.canProvideGuarantor === true,
-          petInsuranceProvided: row.petInsurance ?? false,
-          landlordReference: row.landlordReferenceAvailable ?? false,
-          score: screening.score,
-          decision: screening.decision,
-          risks: screening.reasons.join("\n"),
-        },
-      },
+  } satisfies Prisma.ApplicantUncheckedUpdateManyInput;
+}
+
+function buildReferencingUpsertData(
+  applicantId: string,
+  row: ImportedApplicantPayload,
+  screening: ScreeningResult
+) {
+  return {
+    where: { applicantId },
+    create: {
+      applicantId,
+      creditCheckPassed: screening.creditCheckPassed,
+      guarantorRequired: screening.guarantorRequired,
+      guarantorProvided: row.canProvideGuarantor === true,
+      petInsuranceProvided: row.petInsurance ?? false,
+      landlordReference: row.landlordReferenceAvailable ?? false,
+      score: screening.score,
+      decision: screening.decision,
+      risks: screening.reasons.join("\n"),
     },
-  } satisfies Prisma.ApplicantUpdateInput;
+    update: {
+      creditCheckPassed: screening.creditCheckPassed,
+      guarantorRequired: screening.guarantorRequired,
+      guarantorProvided: row.canProvideGuarantor === true,
+      petInsuranceProvided: row.petInsurance ?? false,
+      landlordReference: row.landlordReferenceAvailable ?? false,
+      score: screening.score,
+      decision: screening.decision,
+      risks: screening.reasons.join("\n"),
+    },
+  } satisfies Prisma.ReferencingCheckUpsertArgs;
 }
 
 async function updateExistingApplicant(args: {
@@ -90,7 +100,7 @@ async function updateExistingApplicant(args: {
   userId: string;
   propertyId: string | null;
   row: ImportedApplicantPayload;
-  screening: ReturnType<typeof screenImportedApplicant>;
+  screening: ScreeningResult;
   importSource: "GOOGLE_FORM" | "GOOGLE_FORM_AUTO";
   existingApplicants: DuplicateApplicantCandidate[];
 }) {
@@ -117,10 +127,14 @@ async function updateExistingApplicant(args: {
     }),
   });
 
-  await recalculateApplicant(applicantId);
+  await prisma.referencingCheck.upsert(
+    buildReferencingUpsertData(applicantId, row, screening)
+  );
+
+  await recalculateApplicantForUser(userId, applicantId);
 
   const idx = existingApplicants.findIndex(
-    (candidate) => candidate.id === applicantId,
+    (candidate) => candidate.id === applicantId
   );
 
   const nextCandidate: DuplicateApplicantCandidate = {
@@ -147,13 +161,13 @@ function isUniqueImportExternalKeyError(error: unknown) {
     error.code === "P2002" &&
     Array.isArray((error.meta as { target?: unknown } | undefined)?.target) &&
     ((error.meta as { target?: unknown[] }).target ?? []).includes(
-      "importExternalKey",
+      "importExternalKey"
     )
   );
 }
 
 export async function upsertImportedApplicant(
-  args: UpsertArgs,
+  args: UpsertArgs
 ): Promise<ImportedApplicantUpsertOutcome> {
   const {
     userId,
@@ -194,6 +208,7 @@ export async function upsertImportedApplicant(
   }
 
   const existing = applicantLooksDuplicate(existingApplicants, row);
+
   if (existing?.id) {
     return updateExistingApplicant({
       applicantId: existing.id,
@@ -212,7 +227,7 @@ export async function upsertImportedApplicant(
   });
 
   try {
-        const applicant = await prisma.applicant.create({
+    const applicant = await prisma.applicant.create({
       data: {
         userId,
         fullName: row.fullName,

@@ -198,7 +198,12 @@ export default async function ApplicantsPage({
     try {
       const sourceUrl = String(formData.get("googleSheetCsvUrl") ?? "").trim();
       const propertyIdRaw = String(formData.get("importPropertyId") ?? "").trim();
-      const propertyId = propertyIdRaw || null;
+
+      if (!propertyIdRaw) {
+        throw new Error("You must assign a property before importing applicants.");
+      }
+
+      const propertyId = propertyIdRaw;
       const csvUrl = coerceGoogleSheetCsvUrl(sourceUrl);
 
       const response = await fetch(csvUrl, {
@@ -222,31 +227,29 @@ export default async function ApplicantsPage({
         );
       }
 
-      const propertyForImport = propertyId
-        ? await prisma.property.findFirst({
-            where: {
-              id: propertyId,
-              userId: currentUser.id,
-              deletedAt: null,
-            },
-            include: {
-              tenancies: {
-                where: { propertyId, deletedAt: null },
-                orderBy: { createdAt: "desc" },
-                select: { rentMonthly: true },
-                take: 1,
-              },
-            },
-          })
-        : null;
+      const propertyForImport = await prisma.property.findFirst({
+        where: {
+          id: propertyId,
+          userId: currentUser.id,
+          deletedAt: null,
+        },
+        include: {
+          tenancies: {
+            where: { propertyId, deletedAt: null },
+            orderBy: { createdAt: "desc" },
+            select: { rentMonthly: true },
+            take: 1,
+          },
+        },
+      });
 
-      if (propertyId && !propertyForImport) {
+      if (!propertyForImport) {
         throw new Error("Invalid property selected for import.");
       }
 
       const rentMonthly =
-        propertyForImport?.advertisedRentMonthly ??
-        propertyForImport?.tenancies[0]?.rentMonthly ??
+        propertyForImport.advertisedRentMonthly ??
+        propertyForImport.tenancies[0]?.rentMonthly ??
         null;
 
       let importedCount = 0;
@@ -270,9 +273,9 @@ export default async function ApplicantsPage({
           propertyId,
           row,
           rentMonthly,
-          passMultiplier: propertyForImport?.screeningPassMultiplier ?? 3,
+          passMultiplier: propertyForImport.screeningPassMultiplier ?? 3,
           guarantorMinMultiplier:
-            propertyForImport?.screeningGuarantorMinMultiplier ?? 2.0,
+            propertyForImport.screeningGuarantorMinMultiplier ?? 2.0,
           importSource: "GOOGLE_FORM",
           existingApplicants,
         });
@@ -626,8 +629,9 @@ export default async function ApplicantsPage({
                     name="importPropertyId"
                     className="rounded-lg border px-3 py-2"
                     defaultValue=""
+                    required
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Select property (required)</option>
                     {properties.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}

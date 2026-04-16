@@ -11,6 +11,10 @@ function getSecret() {
   return new TextEncoder().encode(secret);
 }
 
+function normalizeEmail(email: string) {
+  return email.toLowerCase().trim();
+}
+
 async function setSessionCookie(user: { id: string; email: string }) {
   const token = await new SignJWT({ sub: user.id, email: user.email })
     .setProtectedHeader({ alg: "HS256" })
@@ -36,8 +40,14 @@ export async function verifyPassword(password: string, hash: string) {
   return bcrypt.compare(password, hash);
 }
 
+export function isAdminEmail(email: string) {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail) return false;
+  return normalizeEmail(email) === normalizeEmail(adminEmail);
+}
+
 export async function signIn(email: string, password: string) {
-  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedEmail = normalizeEmail(email);
 
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
@@ -72,7 +82,7 @@ export async function signIn(email: string, password: string) {
 }
 
 export async function createUserAndSignIn(email: string, password: string) {
-  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedEmail = normalizeEmail(email);
 
   if (!normalizedEmail) {
     return { ok: false as const, error: "Email is required" };
@@ -91,7 +101,10 @@ export async function createUserAndSignIn(email: string, password: string) {
   });
 
   if (existingUser) {
-    return { ok: false as const, error: "An account with this email already exists" };
+    return {
+      ok: false as const,
+      error: "An account with this email already exists",
+    };
   }
 
   const passwordHash = await hashPassword(password);
@@ -159,6 +172,16 @@ export async function requireSessionUser() {
 
   if (!user) {
     throw new Error("Unauthenticated");
+  }
+
+  return user;
+}
+
+export async function requireAdminSessionUser() {
+  const user = await requireSessionUser();
+
+  if (!isAdminEmail(user.email)) {
+    throw new Error("Forbidden");
   }
 
   return user;

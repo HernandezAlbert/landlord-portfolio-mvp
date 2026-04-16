@@ -354,7 +354,7 @@ model Applicant {
   requestedMoveIn          DateTime?
   savingsBufferMonths      Int?
   status                   ApplicantStatus            @default(APPLIED)
-  importExternalKey        String?                    @unique
+  importExternalKey        String?                    
   importRawPayload         Json?
   importSource             String?
   importSubmittedAt        DateTime?
@@ -379,6 +379,7 @@ model Applicant {
   @@index([status])
   @@index([deletedAt])
   @@index([screeningStatus])
+  @@unique([userId, importExternalKey])
 }
 
 model ReferencingCheck {
