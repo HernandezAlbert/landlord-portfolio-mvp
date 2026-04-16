@@ -4,19 +4,20 @@ import type { NextRequest } from "next/server";
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ✅ allow public + cron routes
   if (
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/cron") || 
+    pathname.startsWith("/api/cron") ||
     pathname.startsWith("/api/export") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/login")
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup")
   ) {
     return NextResponse.next();
   }
 
   const token = req.cookies.get("lp_session")?.value;
+
   if (!token) {
     const url = new URL("/login", req.url);
     return NextResponse.redirect(url);

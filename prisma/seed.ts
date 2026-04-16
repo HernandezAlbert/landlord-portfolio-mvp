@@ -18,6 +18,16 @@ async function main() {
     create: { email: normalizedEmail, passwordHash },
   });
 
+  await prisma.userSettings.upsert({
+    where: { userId: adminUser.id },
+    update: {},
+    create: {
+      userId: adminUser.id,
+      digestEmailTo: adminUser.email,
+      replyToEmail: adminUser.email,
+    },
+  });
+
   console.log("Admin user ensured:", normalizedEmail);
 
   if (process.env.SEED_DEMO_DATA !== "true") {
@@ -62,11 +72,13 @@ async function main() {
       rentMonthly: 120000,
       rentDueDay: 1,
       isActive: true,
-      tenants: { create: [{ tenantId: tenant.id, role: "Lead" }] },
+      tenants: {
+        create: [{ tenantId: tenant.id, role: "Lead" }],
+      },
     },
   });
 
-  console.log("Demo data created");
+  console.log("Demo data created:", p1.id, p2.id);
 }
 
 main()
