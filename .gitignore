@@ -11,3 +11,4 @@ public/uploads
 export*.json
 *.backup.json
 *.dump.json
+*.tsbuildinfo
