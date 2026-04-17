@@ -1,108 +1,53 @@
+// app/(app)/expenses/[id]/edit/page.tsx
+
+import { notFound, redirect } from "next/navigation";
+import { ExpenseCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
-import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
-import {
-  deleteExpenseReceiptByPath,
-  saveExpenseReceipt,
-} from "@/lib/expense-receipts";
-
-const EXPENSE_CATEGORIES = [
-  "REPAIRS",
-  "MAINTENANCE",
-  "INSURANCE",
-  "UTILITIES",
-  "MORTGAGE_INTEREST",
-  "SERVICE_CHARGE",
-  "MANAGEMENT",
-  "FEES",
-  "OTHER",
-] as const;
-
-function fmtDateInput(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
+import { requireSessionUser } from "@/lib/auth";
+import ConfirmSubmit from "@/components/ConfirmSubmit";
 
 export default async function EditExpensePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const [expense, properties] = await Promise.all([
-    prisma.expense.findFirst({
-      where: { id, deletedAt: null },
-      include: { property: true },
-    }),
-    prisma.property.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  const expense = await prisma.expense.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+      property: {
+        userId: user.id,
+      },
+    },
+    include: {
+      property: true,
+    },
+  });
 
-  if (!expense) redirect("/expenses");
-
-  const expenseItem = expense;
+  if (!expense) {
+    notFound();
+  }
 
   async function updateExpense(formData: FormData) {
     "use server";
 
-    const propertyId = String(formData.get("propertyId") ?? "").trim();
-    const date = String(formData.get("date") ?? "").trim();
-    const amountPounds = Number(formData.get("amount") ?? 0);
-    const category = String(formData.get("category") ?? expenseItem.category);
-    const vendor = String(formData.get("vendor") ?? "").trim();
-    const reference = String(formData.get("reference") ?? "").trim();
-    const notes = String(formData.get("notes") ?? "").trim();
-    const replaceReceipt = formData.get("replaceReceipt") === "on";
-    const removeReceipt = formData.get("removeReceipt") === "on";
-    const receipt = formData.get("receipt");
+    const currentUser = await requireSessionUser();
 
-    if (!propertyId || !date || !amountPounds) {
-      redirect(`/expenses/${id}/edit`);
-    }
-
-    let receiptPath = expenseItem.receiptPath;
-    let receiptStoragePath = expenseItem.receiptStoragePath;
-    let receiptOriginalName = expenseItem.receiptOriginalName;
-
-    if (removeReceipt) {
-      await deleteExpenseReceiptByPath(
-        expenseItem.receiptPath,
-        expenseItem.receiptStoragePath
-      );
-      receiptPath = null;
-      receiptStoragePath = null;
-      receiptOriginalName = null;
-    }
-
-    const incomingFile = receipt instanceof File && receipt.size ? receipt : null;
-
-    if (incomingFile && (replaceReceipt || !expenseItem.receiptPath)) {
-      await deleteExpenseReceiptByPath(
-        expenseItem.receiptPath,
-        expenseItem.receiptStoragePath
-      );
-
-      const receiptData = await saveExpenseReceipt(incomingFile);
-      receiptPath = receiptData?.receiptPath || null;
-      receiptStoragePath = receiptData?.receiptStoragePath || null;
-      receiptOriginalName = receiptData?.receiptOriginalName || null;
-    }
-
-    await prisma.expense.update({
-      where: { id },
+    await prisma.expense.updateMany({
+      where: {
+        id,
+        property: {
+          userId: currentUser.id,
+        },
+      },
       data: {
-        propertyId,
-        date: new Date(date),
-        amount: Math.round(amountPounds * 100),
-        category: category as any,
-        vendor: vendor || null,
-        reference: reference || null,
-        notes: notes || null,
-        receiptPath,
-        receiptStoragePath,
-        receiptOriginalName,
+        category: String(formData.get("category")) as ExpenseCategory,
+        notes: String(formData.get("notes") || ""),
+        amount: Number(formData.get("amount") || 0),
+        date: new Date(String(formData.get("date"))),
       },
     });
 
@@ -112,188 +57,93 @@ export default async function EditExpensePage({
   async function deleteExpense() {
     "use server";
 
-    await prisma.expense.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
+    const currentUser = await requireSessionUser();
 
-    await deleteExpenseReceiptByPath(
-      expenseItem.receiptPath,
-      expenseItem.receiptStoragePath
-    );
+    await prisma.expense.updateMany({
+      where: {
+        id,
+        property: {
+          userId: currentUser.id,
+        },
+      },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
 
     redirect("/expenses");
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Edit expense</h1>
-        <a href="/expenses" className="text-sm underline">
-          Back
-        </a>
-      </div>
+    <div className="space-y-4 max-w-2xl">
+      <h1 className="text-2xl font-semibold">Edit Expense</h1>
 
-      <form
-        action={updateExpense}
-        className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm"
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Property</span>
-            <select
-              name="propertyId"
-              defaultValue={expenseItem.propertyId}
-              className="rounded-xl border px-3 py-2"
-              required
-            >
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Date</span>
-            <input
-              type="date"
-              name="date"
-              defaultValue={fmtDateInput(expenseItem.date)}
-              className="rounded-xl border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Amount (£)</span>
-            <input
-              type="number"
-              name="amount"
-              step="0.01"
-              min="0"
-              defaultValue={(expenseItem.amount / 100).toFixed(2)}
-              className="rounded-xl border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Category</span>
-            <select
-              name="category"
-              defaultValue={expenseItem.category}
-              className="rounded-xl border px-3 py-2"
-            >
-              {EXPENSE_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Vendor (optional)</span>
-            <input
-              name="vendor"
-              defaultValue={expenseItem.vendor ?? ""}
-              className="rounded-xl border px-3 py-2"
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Reference (optional)</span>
-            <input
-              name="reference"
-              defaultValue={expenseItem.reference ?? ""}
-              className="rounded-xl border px-3 py-2"
-            />
-          </label>
+      <form action={updateExpense} className="space-y-4">
+        <div>
+          <label className="block mb-1">Property</label>
+          <input
+            value={expense.property.name}
+            disabled
+            className="w-full border rounded p-2 bg-muted"
+          />
         </div>
 
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
+        <div>
+          <label className="block mb-1">Date</label>
+          <input
+            type="date"
+            name="date"
+            defaultValue={new Date(expense.date)
+              .toISOString()
+              .slice(0, 10)}
+            className="w-full border rounded p-2"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block mb-1">Category</label>
+          <select
+            name="category"
+            defaultValue={expense.category}
+            className="w-full border rounded p-2"
+          >
+            {Object.values(ExpenseCategory).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block mb-1">Amount</label>
+          <input
+            type="number"
+            step="0.01"
+            name="amount"
+            defaultValue={Number(expense.amount || 0).toFixed(2)}
+            className="w-full border rounded p-2"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block mb-1">Notes</label>
           <textarea
             name="notes"
-            defaultValue={expenseItem.notes ?? ""}
-            className="min-h-28 rounded-xl border px-3 py-2"
+            rows={4}
+            defaultValue={expense.notes || ""}
+            className="w-full border rounded p-2"
           />
-        </label>
-
-        <div className="grid gap-3 rounded-xl border p-4">
-          <div className="text-sm font-medium">Receipt</div>
-
-          {expenseItem.receiptPath ? (
-            <div className="text-sm">
-              <a
-                href={expenseItem.receiptPath}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                View current receipt
-              </a>{" "}
-              <span className="text-slate-500">
-                {expenseItem.receiptOriginalName || "Saved receipt"}
-              </span>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">No receipt attached.</p>
-          )}
-
-          <label className="grid gap-1 text-sm">
-            <span>Upload replacement receipt</span>
-            <input type="file" name="receipt" className="rounded-xl border px-3 py-2" />
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="replaceReceipt" />
-            <span>Replace current receipt if a new file is selected</span>
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="removeReceipt" />
-            <span>Remove current receipt</span>
-          </label>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="submit"
-            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
-          >
-            Save changes
-          </button>
-
-          <a href="/expenses" className="rounded-xl border px-4 py-2 text-sm font-medium">
-            Cancel
-          </a>
-        </div>
+        <button className="btn btn-primary">Save Changes</button>
       </form>
 
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
-        <h2 className="text-lg font-semibold text-red-800">Danger zone</h2>
-        <p className="mt-1 text-sm text-red-700">
-          Delete this expense from active lists.
-        </p>
-
-        <form action={deleteExpense} className="mt-4">
-          <ConfirmSubmit
-            title="Delete expense?"
-            description="This will hide the expense from active lists."
-            confirmText="Delete expense"
-          >
-            <button
-              type="submit"
-              className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700"
-            >
-              Delete expense
-            </button>
-          </ConfirmSubmit>
-        </form>
-      </div>
+      <form action={deleteExpense}>
+        <ConfirmSubmit>Delete Expense</ConfirmSubmit>
+      </form>
     </div>
   );
 }

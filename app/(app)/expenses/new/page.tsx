@@ -1,188 +1,122 @@
-import { prisma } from "@/lib/prisma";
+// app/(app)/expenses/new/page.tsx
+
 import { redirect } from "next/navigation";
-import { saveExpenseReceipt } from "@/lib/expense-receipts";
+import { ExpenseCategory } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 
-const EXPENSE_CATEGORIES = [
-  "REPAIRS",
-  "MAINTENANCE",
-  "INSURANCE",
-  "UTILITIES",
-  "MORTGAGE_INTEREST",
-  "SERVICE_CHARGE",
-  "MANAGEMENT",
-  "FEES",
-  "OTHER",
-] as const;
-
-function fmtDate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-export default async function NewExpensePage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ propertyId?: string }>;
-}) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const selectedPropertyId = resolvedSearchParams?.propertyId ?? "";
-
-  const properties = await prisma.property.findMany({
-    where: { deletedAt: null },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
+export default async function NewExpensePage() {
+  const user = await requireSessionUser();
 
   async function createExpense(formData: FormData) {
     "use server";
 
-    const propertyId = String(formData.get("propertyId") ?? "").trim();
-    const date = String(formData.get("date") ?? "").trim();
-    const amountPounds = Number(formData.get("amount") ?? 0);
-    const category = String(formData.get("category") ?? "OTHER");
-    const vendor = String(formData.get("vendor") ?? "").trim();
-    const reference = String(formData.get("reference") ?? "").trim();
-    const notes = String(formData.get("notes") ?? "").trim();
-    const receipt = formData.get("receipt");
+    const currentUser = await requireSessionUser();
 
-    if (!propertyId || !date || !amountPounds) {
-      redirect("/expenses/new");
+    const propertyId = String(formData.get("propertyId") || "");
+
+    const property = await prisma.property.findFirst({
+      where: {
+        id: propertyId,
+        userId: currentUser.id,
+        deletedAt: null,
+      },
+    });
+
+    if (!property) {
+      throw new Error("Invalid property");
     }
-
-    const receiptData = await saveExpenseReceipt(
-      receipt instanceof File ? receipt : null
-    );
 
     await prisma.expense.create({
       data: {
         propertyId,
-        date: new Date(date),
-        amount: Math.round(amountPounds * 100),
-        category: category as any,
-        vendor: vendor || null,
-        reference: reference || null,
-        notes: notes || null,
-        receiptPath: receiptData?.receiptPath || null,
-        receiptStoragePath: receiptData?.receiptStoragePath || null,
-        receiptOriginalName: receiptData?.receiptOriginalName || null,
+        category: String(formData.get("category")) as ExpenseCategory,
+        notes: String(formData.get("notes") || ""),
+        amount: Number(formData.get("amount") || 0),
+        date: new Date(String(formData.get("date"))),
       },
     });
 
     redirect("/expenses");
   }
 
+  const properties = await prisma.property.findMany({
+    where: {
+      userId: user.id,
+      deletedAt: null,
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+
   return (
-    <div className="grid gap-4 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">New expense</h1>
-        <a href="/expenses">← Back</a>
-      </div>
+    <div className="space-y-4 max-w-2xl">
+      <h1 className="text-2xl font-semibold">New Expense</h1>
 
-      <form
-        action={createExpense}
-        className="grid gap-4 rounded-xl border bg-white p-4"
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm md:col-span-2">
-            <span>Property</span>
-            <select
-              name="propertyId"
-              defaultValue={selectedPropertyId}
-              className="rounded border px-3 py-2"
-              required
-            >
-              <option value="">Select property</option>
-              {properties.map((property) => (
-                <option key={property.id} value={property.id}>
-                  {property.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Date</span>
-            <input
-              type="date"
-              name="date"
-              defaultValue={fmtDate(new Date())}
-              className="rounded border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Amount (£)</span>
-            <input
-              type="number"
-              name="amount"
-              step="0.01"
-              min="0"
-              className="rounded border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Category</span>
-            <select
-              name="category"
-              defaultValue="OTHER"
-              className="rounded border px-3 py-2"
-            >
-              {EXPENSE_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Vendor (optional)</span>
-            <input
-              name="vendor"
-              className="rounded border px-3 py-2"
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Reference (optional)</span>
-            <input
-              name="reference"
-              className="rounded border px-3 py-2"
-            />
-          </label>
+      <form action={createExpense} className="space-y-4">
+        <div>
+          <label className="block mb-1">Property</label>
+          <select
+            name="propertyId"
+            className="w-full border rounded p-2"
+            required
+          >
+            <option value="">Select property</option>
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
+        <div>
+          <label className="block mb-1">Date</label>
+          <input
+            type="date"
+            name="date"
+            className="w-full border rounded p-2"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block mb-1">Category</label>
+          <select
+            name="category"
+            className="w-full border rounded p-2"
+            required
+          >
+            {Object.values(ExpenseCategory).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block mb-1">Amount</label>
+          <input
+            type="number"
+            step="0.01"
+            name="amount"
+            className="w-full border rounded p-2"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block mb-1">Notes</label>
           <textarea
             name="notes"
             rows={4}
-            className="rounded border px-3 py-2"
+            className="w-full border rounded p-2"
           />
-        </label>
-
-        <label className="grid gap-1 text-sm">
-          <span>Receipt (optional)</span>
-          <input
-            type="file"
-            name="receipt"
-            className="rounded border px-3 py-2"
-          />
-        </label>
-
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-white"
-          >
-            Create expense
-          </button>
-          <a href="/expenses" className="rounded-lg border px-4 py-2">
-            Cancel
-          </a>
         </div>
+
+        <button className="btn btn-primary">Save Expense</button>
       </form>
     </div>
   );
