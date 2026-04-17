@@ -1,146 +1,119 @@
-import { prisma } from "@/lib/prisma";
+// app/(app)/notices/new/page.tsx
+
 import { redirect } from "next/navigation";
+import { NoticeMethod, NoticeType } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 
-function fmtDate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-export default async function NewNoticePage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ tenancyId?: string }>;
-}) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const selectedTenancyId = resolvedSearchParams?.tenancyId ?? "";
-
-  const tenancies = await prisma.tenancy.findMany({
-    where: {
-      deletedAt: null,
-      property: { deletedAt: null },
-    },
-    include: {
-      property: {
-        select: { name: true },
-      },
-    },
-    orderBy: { startDate: "desc" },
-  });
+export default async function NewNoticePage() {
+  const user = await requireSessionUser();
 
   async function createNotice(formData: FormData) {
     "use server";
 
-    const tenancyId = String(formData.get("tenancyId") ?? "").trim();
-    const type = String(formData.get("type") ?? "OTHER");
-    const dateServed = String(formData.get("dateServed") ?? "").trim();
-    const method = String(formData.get("method") ?? "OTHER");
-    const notes = String(formData.get("notes") ?? "").trim();
+    const currentUser = await requireSessionUser();
 
-    if (!tenancyId || !dateServed) {
-      redirect("/notices/new");
+    const tenancyId = String(formData.get("tenancyId") || "");
+
+    const tenancy = await prisma.tenancy.findFirst({
+      where: {
+        id: tenancyId,
+        deletedAt: null,
+        property: {
+          userId: currentUser.id,
+          deletedAt: null,
+        },
+      },
+    });
+
+    if (!tenancy) {
+      throw new Error("Invalid tenancy");
     }
 
     await prisma.notice.create({
       data: {
         tenancyId,
-        type: type as any,
-        dateServed: new Date(dateServed),
-        method: method as any,
-        notes: notes || null,
+        type: String(formData.get("type")) as NoticeType,
+        method: String(formData.get("method")) as NoticeMethod,
+        notes: String(formData.get("notes") || ""),
+        dateServed: new Date(String(formData.get("dateServed"))),
       },
     });
 
-    redirect(`/tenancies/${tenancyId}/notices`);
+    redirect("/notices");
   }
 
-  return (
-    <div className="grid gap-4 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">New notice</h1>
-        <a href="/notices">← Back</a>
-      </div>
+  const tenancies = await prisma.tenancy.findMany({
+    where: {
+      deletedAt: null,
+      property: {
+        deletedAt: null,
+        userId: user.id,
+      },
+    },
+    include: {
+      property: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
 
-      <form
-        action={createNotice}
-        className="grid gap-4 rounded-xl border bg-white p-4"
-      >
-        <label className="grid gap-1 text-sm">
-          <span>Tenancy</span>
-          <select
-            name="tenancyId"
-            defaultValue={selectedTenancyId}
-            className="rounded border px-3 py-2"
-            required
-          >
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <h1 className="text-2xl font-semibold">New Notice</h1>
+
+      <form action={createNotice} className="space-y-4">
+        <div>
+          <label className="block mb-1">Tenancy</label>
+          <select name="tenancyId" className="w-full border rounded p-2" required>
             <option value="">Select tenancy</option>
             {tenancies.map((tenancy) => (
               <option key={tenancy.id} value={tenancy.id}>
-                {tenancy.property.name} — {fmtDate(tenancy.startDate)}
+                {tenancy.property.address1}
               </option>
             ))}
           </select>
-        </label>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Type</span>
-            <select
-              name="type"
-              defaultValue="OTHER"
-              className="rounded border px-3 py-2"
-            >
-              <option value="SECTION_8">Section 8</option>
-              <option value="SECTION_21">Section 21</option>
-              <option value="RENT_INCREASE">Rent increase</option>
-              <option value="OTHER">Other</option>
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span>Date served</span>
-            <input
-              type="date"
-              name="dateServed"
-              defaultValue={fmtDate(new Date())}
-              className="rounded border px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm md:col-span-2">
-            <span>Method</span>
-            <select
-              name="method"
-              defaultValue="OTHER"
-              className="rounded border px-3 py-2"
-            >
-              <option value="POST">Post</option>
-              <option value="EMAIL">Email</option>
-              <option value="HAND_DELIVERED">Hand delivered</option>
-              <option value="OTHER">Other</option>
-            </select>
-          </label>
         </div>
 
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
-          <textarea
-            name="notes"
-            rows={4}
-            className="rounded border px-3 py-2"
+        <div>
+          <label className="block mb-1">Type</label>
+          <select name="type" className="w-full border rounded p-2" required>
+            {Object.values(NoticeType).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block mb-1">Date Served</label>
+          <input
+            type="date"
+            name="dateServed"
+            className="w-full border rounded p-2"
+            required
           />
-        </label>
-
-        <div className="flex gap-3">
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-white"
-          >
-            Create notice
-          </button>
-          <a href="/notices" className="rounded-lg border px-4 py-2">
-            Cancel
-          </a>
         </div>
+
+        <div>
+          <label className="block mb-1">Method</label>
+          <select name="method" className="w-full border rounded p-2" required>
+            {Object.values(NoticeMethod).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block mb-1">Notes</label>
+          <textarea name="notes" className="w-full border rounded p-2" rows={4} />
+        </div>
+
+        <button className="btn btn-primary">Save Notice</button>
       </form>
     </div>
   );

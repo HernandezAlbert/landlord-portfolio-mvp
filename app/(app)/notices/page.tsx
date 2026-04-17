@@ -1,20 +1,43 @@
+// app/(app)/notices/page.tsx
+
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
+import { requireSessionUser } from "@/lib/auth";
+import ConfirmSubmit from "@/components/ConfirmSubmit";
 
 export default async function NoticesPage() {
+  const user = await requireSessionUser();
+
   async function deleteNotice(formData: FormData) {
     "use server";
-    const noticeId = String(formData.get("noticeId") ?? "");
-    if (!noticeId) return;
-    await prisma.notice.update({
-      where: { id: noticeId },
-      data: { deletedAt: new Date() },
+
+    const currentUser = await requireSessionUser();
+    const noticeId = String(formData.get("noticeId") || "");
+
+    await prisma.notice.updateMany({
+      where: {
+        id: noticeId,
+        tenancy: {
+          property: {
+            userId: currentUser.id,
+          },
+        },
+      },
+      data: {
+        deletedAt: new Date(),
+      },
     });
   }
 
   const notices = await prisma.notice.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      tenancy: {
+        property: {
+          userId: user.id,
+        },
+      },
+    },
     include: {
       tenancy: {
         include: {
@@ -22,80 +45,74 @@ export default async function NoticesPage() {
         },
       },
     },
-    orderBy: { dateServed: "desc" },
+    orderBy: {
+      createdAt: "desc",
+    },
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Notices</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Track served notices across your portfolio.
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Notices</h1>
 
-        <Link
-          href="/notices/new"
-          className="btn btn-primary"
-        >
-          + Add Notice
+        <Link href="/notices/new" className="btn btn-primary">
+          Add Notice
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Property</th>
-              <th className="px-4 py-3 font-medium">Date served</th>
-              <th className="px-4 py-3 font-medium">Method</th>
-              <th className="px-4 py-3 font-medium">Notes</th>
-              <th className="px-4 py-3 font-medium">Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {notices.map((n) => (
-              <tr key={n.id} className="border-t border-slate-200 hover:bg-slate-50">
-                <td className="px-4 py-3 text-slate-900">{n.type}</td>
-                <td className="px-4 py-3 text-slate-700">{n.tenancy.property.name}</td>
-                <td className="px-4 py-3 text-slate-700">
-                  {n.dateServed.toISOString().slice(0, 10)}
-                </td>
-                <td className="px-4 py-3 text-slate-700">{n.method}</td>
-                <td className="px-4 py-3 text-slate-700">{n.notes ?? ""}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={`/notices/${n.id}/edit`}
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
-                    >
-                      Edit
-                    </Link>
-
-                    <form action={deleteNotice}>
-                      <input type="hidden" name="noticeId" value={n.id} />
-                      <ConfirmSubmit confirmMessage="Delete this notice?">
-                        Delete
-                      </ConfirmSubmit>
-                    </form>
-                  </div>
-                </td>
+      {notices.length === 0 ? (
+        <div className="rounded border p-4">No notices found.</div>
+      ) : (
+        <div className="overflow-x-auto rounded border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="p-3">Property</th>
+                <th className="p-3">Type</th>
+                <th className="p-3">Served</th>
+                <th className="p-3">Method</th>
+                <th className="p-3">Notes</th>
+                <th className="p-3">Actions</th>
               </tr>
-            ))}
+            </thead>
 
-            {notices.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-sm text-slate-500">
-                  No notices recorded yet.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+            <tbody>
+              {notices.map((notice) => (
+                <tr key={notice.id} className="border-b">
+                  <td className="p-3">
+                    {notice.tenancy?.property?.address1 || "-"}
+                  </td>
+                  <td className="p-3">{notice.type}</td>
+                  <td className="p-3">
+                    {new Date(notice.dateServed).toLocaleDateString()}
+                  </td>
+                  <td className="p-3">{notice.method}</td>
+                  <td className="p-3">{notice.notes || "-"}</td>
+                  <td className="p-3">
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/notices/${notice.id}/edit`}
+                        className="btn btn-secondary"
+                      >
+                        Edit
+                      </Link>
+
+                      <form action={deleteNotice}>
+                        <input
+                          type="hidden"
+                          name="noticeId"
+                          value={notice.id}
+                        />
+                        <ConfirmSubmit>Delete</ConfirmSubmit>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
