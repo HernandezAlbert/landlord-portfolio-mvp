@@ -1,18 +1,44 @@
-import { SignJWT, jwtVerify } from "jose";
+import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
+import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+
 import { prisma } from "./prisma";
 
 const COOKIE_NAME = "lp_session";
+const PASSWORD_RESET_TOKEN_TTL_HOURS = 1;
+const PASSWORD_RESET_PASSWORD_MIN_LENGTH = 8;
 
 function getSecret() {
   const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error("AUTH_SECRET missing");
+
+  if (!secret) {
+    throw new Error("AUTH_SECRET missing");
+  }
+
   return new TextEncoder().encode(secret);
 }
 
 function normalizeEmail(email: string) {
   return email.toLowerCase().trim();
+}
+
+function getBaseUrl(requestUrl?: string) {
+  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+
+  if (appBaseUrl) {
+    return appBaseUrl.replace(/\/+$/, "");
+  }
+
+  if (requestUrl) {
+    return new URL(requestUrl).origin;
+  }
+
+  throw new Error("APP_BASE_URL missing");
+}
+
+function hashResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 async function setSessionCookie(user: { id: string; email: string }) {
@@ -42,7 +68,11 @@ export async function verifyPassword(password: string, hash: string) {
 
 export function isAdminEmail(email: string) {
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) return false;
+
+  if (!adminEmail) {
+    return false;
+  }
+
   return normalizeEmail(email) === normalizeEmail(adminEmail);
 }
 
@@ -73,10 +103,7 @@ export async function signIn(email: string, password: string) {
     },
   });
 
-  await setSessionCookie({
-    id: user.id,
-    email: user.email,
-  });
+  await setSessionCookie({ id: user.id, email: user.email });
 
   return { ok: true as const };
 }
@@ -88,10 +115,10 @@ export async function createUserAndSignIn(email: string, password: string) {
     return { ok: false as const, error: "Email is required" };
   }
 
-  if (password.length < 8) {
+  if (password.length < PASSWORD_RESET_PASSWORD_MIN_LENGTH) {
     return {
       ok: false as const,
-      error: "Password must be at least 8 characters",
+      error: `Password must be at least ${PASSWORD_RESET_PASSWORD_MIN_LENGTH} characters`,
     };
   }
 
@@ -137,6 +164,132 @@ export async function createUserAndSignIn(email: string, password: string) {
   return { ok: true as const };
 }
 
+export async function createPasswordReset(email: string, requestUrl?: string) {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    return { ok: true as const };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+    select: {
+      id: true,
+      email: true,
+    },
+  });
+
+  if (!user) {
+    return { ok: true as const };
+  }
+
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashResetToken(token);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_HOURS * 60 * 60 * 1000);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.passwordResetToken.deleteMany({
+      where: {
+        OR: [
+          { userId: user.id },
+          { expiresAt: { lt: new Date() } },
+        ],
+      },
+    });
+
+    await tx.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+      },
+    });
+  });
+
+  const resetUrl = `${getBaseUrl(requestUrl)}/reset-password?token=${encodeURIComponent(token)}`;
+
+  return {
+    ok: true as const,
+    userEmail: user.email,
+    resetUrl,
+    expiresAt,
+  };
+}
+
+export async function resetPasswordWithToken(token: string, password: string) {
+  const trimmedToken = token.trim();
+
+  if (!trimmedToken) {
+    return {
+      ok: false as const,
+      error: "Reset token is required",
+    };
+  }
+
+  if (password.length < PASSWORD_RESET_PASSWORD_MIN_LENGTH) {
+    return {
+      ok: false as const,
+      error: `Password must be at least ${PASSWORD_RESET_PASSWORD_MIN_LENGTH} characters`,
+    };
+  }
+
+  const tokenHash = hashResetToken(trimmedToken);
+
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  if (!resetToken) {
+    return {
+      ok: false as const,
+      error: "This password reset link is invalid or has expired",
+    };
+  }
+
+  if (resetToken.usedAt || resetToken.expiresAt.getTime() < Date.now()) {
+    return {
+      ok: false as const,
+      error: "This password reset link is invalid or has expired",
+    };
+  }
+
+  const passwordHash = await hashPassword(password);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    });
+
+    await tx.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.passwordResetToken.deleteMany({
+      where: {
+        userId: resetToken.userId,
+        id: { not: resetToken.id },
+      },
+    });
+  });
+
+  await setSessionCookie({
+    id: resetToken.user.id,
+    email: resetToken.user.email,
+  });
+
+  return { ok: true as const };
+}
+
 export async function signOut() {
   const jar = await cookies();
 
@@ -151,12 +304,16 @@ export async function getSessionUser() {
   const jar = await cookies();
   const token = jar.get(COOKIE_NAME)?.value;
 
-  if (!token) return null;
+  if (!token) {
+    return null;
+  }
 
   try {
     const { payload } = await jwtVerify(token, getSecret());
 
-    if (!payload.sub) return null;
+    if (!payload.sub) {
+      return null;
+    }
 
     return {
       id: String(payload.sub),

@@ -1,49 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function LoginPage() {
+export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    setMessage(null);
     setLoading(true);
 
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch("/api/auth/forgot-password", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email }),
     });
 
+    const data = await res.json().catch(() => ({}));
     setLoading(false);
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setErr(data.error ?? "Login failed");
+      setErr(data.error ?? "Could not send reset email");
       return;
     }
 
-    router.push("/dashboard");
-    router.refresh();
+    setMessage(
+      data.message ??
+        "If an account exists for that email address, a password reset link has been sent."
+    );
   }
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
       <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Landlord Portfolio
+          Forgot password
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Sign in to your landlord workspace.
+          Enter your email address and we’ll send a password reset link if an account exists.
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
@@ -61,31 +62,15 @@ export default function LoginPage() {
             />
           </div>
 
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-4">
-              <label className="block text-sm font-medium text-slate-700">
-                Password
-              </label>
-              <Link
-                href="/forgot-password"
-                className="text-sm font-medium text-slate-700 underline underline-offset-4 hover:text-slate-900"
-              >
-                Forgot password?
-              </Link>
-            </div>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-0 transition focus:border-slate-500"
-              required
-            />
-          </div>
-
           {err ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {err}
+            </div>
+          ) : null}
+
+          {message ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {message}
             </div>
           ) : null}
 
@@ -94,21 +79,17 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Sending..." : "Send reset link"}
           </button>
         </form>
 
-        <div className="mt-4 space-y-2 text-sm text-slate-600">
-          <p>
-            New here?{" "}
-            <Link
-              href="/signup"
-              className="font-medium text-slate-900 underline underline-offset-4"
-            >
-              Create an account
-            </Link>
-          </p>
-          <p>Existing seeded admin accounts will still work with their current credentials.</p>
+        <div className="mt-4 text-sm text-slate-600">
+          <Link
+            href="/login"
+            className="font-medium text-slate-900 underline underline-offset-4"
+          >
+            Back to sign in
+          </Link>
         </div>
       </div>
     </div>

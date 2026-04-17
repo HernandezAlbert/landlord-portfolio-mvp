@@ -9,67 +9,82 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
-  passwordHash String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  settings     UserSettings?
-  properties   Property[]
-  tenants      Tenant[]
-  applicants   Applicant[]
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  passwordHash        String
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  settings            UserSettings?
+  properties          Property[]
+  tenants             Tenant[]
+  applicants          Applicant[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model UserSettings {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  digestEmailTo     String?
-  emailFromName     String?
-  replyToEmail      String?
-  digestEnabled     Boolean  @default(true)
-  timezone          String   @default("Europe/London")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  digestEmailTo String?
+  emailFromName String?
+  replyToEmail  String?
+  digestEnabled Boolean  @default(true)
+  timezone      String   @default("Europe/London")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([usedAt])
 }
 
 model Property {
-  id                             String           @id @default(cuid())
-  userId                         String
-  name                           String
-  address1                       String
-  address2                       String?
-  city                           String
-  postcode                       String
-  notes                          String?
-  googleFormImportEnabled        Boolean          @default(false)
-  googleSheetId                  String?
-  googleSheetTabName             String?
-  googleLastImportedRow          Int?
-  googleLastCheckedAt            DateTime?
-  googleLastImportedAt           DateTime?
-  googleSyncError                String?
-  screeningPassMultiplier        Float            @default(3.0)
-  screeningGuarantorMinMultiplier Float           @default(2.0)
-  advertisedRentMonthly          Int?
-  propertyLicenseExpiresOn       DateTime?
-  createdAt                      DateTime         @default(now())
-  updatedAt                      DateTime         @updatedAt
-  deletedAt                      DateTime?
+  id                              String   @id @default(cuid())
+  userId                          String
+  name                            String
+  address1                        String
+  address2                        String?
+  city                            String
+  postcode                        String
+  notes                           String?
+  googleFormImportEnabled         Boolean  @default(false)
+  googleSheetId                   String?
+  googleSheetTabName              String?
+  googleLastImportedRow           Int?
+  googleLastCheckedAt             DateTime?
+  googleLastImportedAt            DateTime?
+  googleSyncError                 String?
+  screeningPassMultiplier         Float    @default(3.0)
+  screeningGuarantorMinMultiplier Float    @default(2.0)
+  advertisedRentMonthly           Int?
+  propertyLicenseExpiresOn        DateTime?
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+  deletedAt                       DateTime?
 
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicants        Applicant[]
-  compliance        ComplianceItem[]
-  expenses          Expense[]
-  inspections       Inspection[]
-  insurancePolicy   InsurancePolicy?
-  mortgage          MortgageDetail?
-  tenancies         Tenancy[]
-  reportSchedules   ReportSchedule[]
-  reportRuns        ReportRun[]
-  holdingDeposits   HoldingDeposit[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicants       Applicant[]
+  compliance       ComplianceItem[]
+  expenses         Expense[]
+  inspections      Inspection[]
+  insurancePolicy  InsurancePolicy?
+  mortgage         MortgageDetail?
+  tenancies        Tenancy[]
+  reportSchedules  ReportSchedule[]
+  reportRuns       ReportRun[]
+  holdingDeposits  HoldingDeposit[]
 
   @@index([userId])
   @@index([deletedAt])
@@ -78,20 +93,20 @@ model Property {
 }
 
 model Tenant {
-  id                    String          @id @default(cuid())
-  userId                String
-  fullName              String
-  email                 String?
-  phone                 String?
-  notes                 String?
-  rightToRentExpiresOn  DateTime?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  deletedAt             DateTime?
+  id                   String   @id @default(cuid())
+  userId               String
+  fullName             String
+  email                String?
+  phone                String?
+  notes                String?
+  rightToRentExpiresOn DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
 
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contactLogs  ContactLog[]
-  tenancies    TenancyTenant[]
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactLogs ContactLog[]
+  tenancies   TenancyTenant[]
 
   @@index([userId])
   @@index([deletedAt])
@@ -99,27 +114,27 @@ model Tenant {
 }
 
 model Tenancy {
-  id                     String          @id @default(cuid())
+  id                     String   @id @default(cuid())
   propertyId             String
   startDate              DateTime
   endDate                DateTime?
   rentMonthly            Int
   rentDueDay             Int
-  isActive               Boolean         @default(true)
+  isActive               Boolean  @default(true)
   notes                  String?
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
   deletedAt              DateTime?
-  autoGenerateRent       Boolean         @default(true)
+  autoGenerateRent       Boolean  @default(true)
   lastRentGeneratedOn    DateTime?
-  rentGenerateMonthsAhead Int            @default(3)
+  rentGenerateMonthsAhead Int     @default(3)
 
-  contactLogs  ContactLog[]
-  expenses     Expense[]
-  notices      Notice[]
-  payments     Payment[]
-  property     Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  tenants      TenancyTenant[]
+  contactLogs ContactLog[]
+  expenses    Expense[]
+  notices     Notice[]
+  payments    Payment[]
+  property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenants     TenancyTenant[]
 
   @@index([propertyId])
   @@index([isActive])
@@ -127,10 +142,10 @@ model Tenancy {
 }
 
 model TenancyTenant {
-  tenancyId String
-  tenantId  String
-  role      String?
-  createdAt DateTime @default(now())
+  tenancyId  String
+  tenantId   String
+  role       String?
+  createdAt  DateTime @default(now())
 
   tenancy Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -139,16 +154,16 @@ model TenancyTenant {
 }
 
 model Payment {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   tenancyId  String
   dueDate    DateTime
   amountDue  Int
-  amountPaid Int       @default(0)
+  amountPaid Int      @default(0)
   paidDate   DateTime?
   method     String?
   notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   deletedAt  DateTime?
 
   tenancy Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
@@ -177,13 +192,13 @@ model ComplianceItem {
 }
 
 model Inspection {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   propertyId String
   lastDate   DateTime?
   nextDue    DateTime?
   notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   deletedAt  DateTime?
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
@@ -242,8 +257,8 @@ model ReminderConfig {
 }
 
 model MortgageDetail {
-  id                String    @id @default(cuid())
-  propertyId        String    @unique
+  id                String   @id @default(cuid())
+  propertyId        String   @unique
   lender            String?
   mortgageNumber    String?
   productName       String?
@@ -255,8 +270,8 @@ model MortgageDetail {
   mortgageTermStart DateTime?
   mortgageTermEnd   DateTime?
   notes             String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   deletedAt         DateTime?
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
@@ -266,20 +281,20 @@ model MortgageDetail {
 }
 
 model InsurancePolicy {
-  id            String    @id @default(cuid())
-  propertyId    String    @unique
-  provider      String?
-  policyNumber  String?
-  coverType     String?
-  annualPremium Int?
+  id             String   @id @default(cuid())
+  propertyId     String   @unique
+  provider       String?
+  policyNumber   String?
+  coverType      String?
+  annualPremium  Int?
   monthlyPremium Int?
-  startDate     DateTime?
-  endDate       DateTime?
-  renewalDate   DateTime?
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  startDate      DateTime?
+  endDate        DateTime?
+  renewalDate    DateTime?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
@@ -288,7 +303,7 @@ model InsurancePolicy {
 }
 
 model Expense {
-  id                  String          @id @default(cuid())
+  id                  String   @id @default(cuid())
   propertyId          String
   tenancyId           String?
   date                DateTime
@@ -300,8 +315,8 @@ model Expense {
   receiptPath         String?
   receiptStoragePath  String?
   receiptOriginalName String?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
   deletedAt           DateTime?
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
@@ -313,7 +328,7 @@ model Expense {
 }
 
 model ContactLog {
-  id           String       @id @default(cuid())
+  id           String   @id @default(cuid())
   tenancyId    String?
   tenantId     String?
   type         ContactType
@@ -321,8 +336,8 @@ model ContactLog {
   subject      String?
   notes        String
   nextFollowUp DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
   deletedAt    DateTime?
 
   tenancy Tenancy? @relation(fields: [tenancyId], references: [id])
@@ -335,43 +350,43 @@ model ContactLog {
 }
 
 model Applicant {
-  id                       String                     @id @default(cuid())
-  userId                   String
-  fullName                 String
-  email                    String?
-  phone                    String?
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
-  adults                   Int                        @default(1)
-  children                 Int                        @default(0)
-  deletedAt                DateTime?
-  employmentStatus         String?
-  hasPets                  Boolean                    @default(false)
-  monthlyIncome            Int?
-  notes                    String?
-  petDetails               String?
-  propertyId               String?
-  requestedMoveIn          DateTime?
-  savingsBufferMonths      Int?
-  status                   ApplicantStatus            @default(APPLIED)
-  importExternalKey        String?                    
-  importRawPayload         Json?
-  importSource             String?
-  importSubmittedAt        DateTime?
-  screeningReason          String?
-  screeningStatus          String?
-  screeningSummary         String?
-  screeningScore           Int?
-  canProvideGuarantor      Boolean?
-  guarantorRequired        Boolean                    @default(false)
-  guarantorAvailable       Boolean?
-  guarantorOutcome         GuarantorAssessmentStatus?
-  guarantorNotes           String?
+  id                    String                     @id @default(cuid())
+  userId                String
+  fullName              String
+  email                 String?
+  phone                 String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  adults                Int                        @default(1)
+  children              Int                        @default(0)
+  deletedAt             DateTime?
+  employmentStatus      String?
+  hasPets               Boolean                    @default(false)
+  monthlyIncome         Int?
+  notes                 String?
+  petDetails            String?
+  propertyId            String?
+  requestedMoveIn       DateTime?
+  savingsBufferMonths   Int?
+  status                ApplicantStatus            @default(APPLIED)
+  importExternalKey     String?
+  importRawPayload      Json?
+  importSource          String?
+  importSubmittedAt     DateTime?
+  screeningReason       String?
+  screeningStatus       String?
+  screeningSummary      String?
+  screeningScore        Int?
+  canProvideGuarantor   Boolean?
+  guarantorRequired     Boolean                    @default(false)
+  guarantorAvailable    Boolean?
+  guarantorOutcome      GuarantorAssessmentStatus?
+  guarantorNotes        String?
 
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  property     Property?         @relation(fields: [propertyId], references: [id])
-  referencing  ReferencingCheck?
-  guarantors   Guarantor[]
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property       Property?         @relation(fields: [propertyId], references: [id])
+  referencing    ReferencingCheck?
+  guarantors     Guarantor[]
   holdingDeposit HoldingDeposit?
 
   @@index([userId])
@@ -383,37 +398,37 @@ model Applicant {
 }
 
 model ReferencingCheck {
-  id                    String    @id @default(cuid())
-  applicantId           String    @unique
-  idProvided            Boolean   @default(false)
-  rightToRentChecked    Boolean   @default(false)
-  payslipsProvided      Boolean   @default(false)
-  bankStatementsProvided Boolean  @default(false)
-  employmentReference   Boolean   @default(false)
-  landlordReference     Boolean   @default(false)
-  creditCheckPassed     Boolean?
-  incomeVerified        Boolean   @default(false)
-  guarantorRequired     Boolean   @default(false)
-  guarantorProvided     Boolean   @default(false)
-  petInsuranceProvided  Boolean   @default(false)
-  score                 Int?
-  decision              String?
-  manualDecision        String?
-  manualDecisionReason  String?
-  risks                 String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String   @id @default(cuid())
+  applicantId          String   @unique
+  idProvided           Boolean  @default(false)
+  rightToRentChecked   Boolean  @default(false)
+  payslipsProvided     Boolean  @default(false)
+  bankStatementsProvided Boolean @default(false)
+  employmentReference  Boolean  @default(false)
+  landlordReference    Boolean  @default(false)
+  creditCheckPassed    Boolean?
+  incomeVerified       Boolean  @default(false)
+  guarantorRequired    Boolean  @default(false)
+  guarantorProvided    Boolean  @default(false)
+  petInsuranceProvided Boolean  @default(false)
+  score                Int?
+  decision             String?
+  manualDecision       String?
+  manualDecisionReason String?
+  risks                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
 }
 
 model ActionOverride {
-  id          String    @id @default(cuid())
-  key         String    @unique
+  id          String   @id @default(cuid())
+  key         String   @unique
   note        String?
   snoozedUntil DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 enum ComplianceType {
@@ -470,17 +485,17 @@ enum ExpenseCategory {
 }
 
 model ReportSchedule {
-  id             String     @id @default(cuid())
+  id             String    @id @default(cuid())
   type           ReportType
   propertyId     String?
-  property       Property?  @relation(fields: [propertyId], references: [id])
-  isActive       Boolean    @default(true)
-  autoGenerate   Boolean    @default(true)
-  reminderEnabled Boolean   @default(true)
-  daysBeforeDue  Int        @default(7)
-  reminderDays   String     @default("14,7,3,1")
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  property       Property? @relation(fields: [propertyId], references: [id])
+  isActive       Boolean   @default(true)
+  autoGenerate   Boolean   @default(true)
+  reminderEnabled Boolean  @default(true)
+  daysBeforeDue  Int       @default(7)
+  reminderDays   String    @default("14,7,3,1")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model ReportRun {
@@ -499,13 +514,13 @@ model ReportRun {
 }
 
 model ReportSnapshot {
-  id           String    @id @default(cuid())
-  reportRunId  String
-  reportRun    ReportRun @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
-  summaryJson  Json
-  rowsJson     Json
+  id         String   @id @default(cuid())
+  reportRunId String
+  reportRun  ReportRun @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
+  summaryJson Json
+  rowsJson    Json
   warningsJson Json
-  createdAt    DateTime  @default(now())
+  createdAt   DateTime @default(now())
 }
 
 model Guarantor {
@@ -535,7 +550,8 @@ model Guarantor {
   assessmentStatus      GuarantorAssessmentStatus  @default(PENDING)
   archivedAt            DateTime?
   applicantId           String?
-  applicant             Applicant?                 @relation(fields: [applicantId], references: [id], onDelete: SetNull)
+
+  applicant Applicant? @relation(fields: [applicantId], references: [id], onDelete: SetNull)
 
   @@index([applicantId])
   @@index([archivedAt])
@@ -549,7 +565,7 @@ model HoldingDeposit {
   amountReceivedPence   Int?
   weeklyRentSnapshotPence Int?
   receivedAt            DateTime?
-  deadlineAt            DateTime
+  deadlineAt            DateTime?
   status                HoldingDepositStatus    @default(PENDING)
   outcomeReason         String?
   refundedAt            DateTime?
