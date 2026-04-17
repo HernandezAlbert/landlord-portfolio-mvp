@@ -1,5 +1,8 @@
+// app/(app)/guarantors/[id]/edit/page.tsx
+
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 import GuarantorForm from "@/components/guarantors/guarantor-form";
 
 function moneyInputValue(value?: number | null) {
@@ -17,10 +20,17 @@ export default async function EditGuarantorPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const guarantor = await prisma.guarantor.findUnique({
-    where: { id },
+  const guarantor = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      archivedAt: null,
+      applicant: {
+        userId: user.id,
+      },
+    },
   });
 
   if (!guarantor) notFound();

@@ -1,5 +1,8 @@
+// app/(app)/guarantors/page.tsx
+
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 
 function formatMoney(value?: number | null) {
   if (typeof value !== "number") return "—";
@@ -15,9 +18,14 @@ function formatDate(value?: Date | null) {
 }
 
 export default async function GuarantorsPage() {
+  const user = await requireSessionUser();
+
   const guarantors = await prisma.guarantor.findMany({
     where: {
       archivedAt: null,
+      applicant: {
+        userId: user.id,
+      },
     },
     include: {
       applicant: {

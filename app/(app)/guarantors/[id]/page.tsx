@@ -1,16 +1,22 @@
+// app/(app)/guarantors/[id]/page.tsx
+
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 import { assessGuarantor } from "@/lib/guarantor-assessment";
 import SubmitActionButton from "@/components/ui/submit-action-button";
 import ToastBridge from "@/components/ui/toast-bridge";
 
-async function getApplicantRentPence(applicantId?: string | null) {
+async function getApplicantRentPence(userId: string, applicantId?: string | null) {
   if (!applicantId) return 0;
 
-  const applicant = await prisma.applicant.findUnique({
-    where: { id: applicantId },
+  const applicant = await prisma.applicant.findFirst({
+    where: {
+      id: applicantId,
+      userId,
+    },
     include: {
       property: true,
     },
@@ -18,7 +24,10 @@ async function getApplicantRentPence(applicantId?: string | null) {
 
   if (!applicant) return 0;
 
-  if (applicant.property?.advertisedRentMonthly && applicant.property.advertisedRentMonthly > 0) {
+  if (
+    applicant.property?.advertisedRentMonthly &&
+    applicant.property.advertisedRentMonthly > 0
+  ) {
     return applicant.property.advertisedRentMonthly;
   }
 
@@ -29,6 +38,9 @@ async function getApplicantRentPence(applicantId?: string | null) {
       propertyId: applicant.propertyId,
       isActive: true,
       deletedAt: null,
+      property: {
+        userId,
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -39,17 +51,35 @@ async function getApplicantRentPence(applicantId?: string | null) {
 async function deleteGuarantor(formData: FormData) {
   "use server";
 
+  const currentUser = await requireSessionUser();
   const id = String(formData.get("id") ?? "");
 
-  const guarantor = await prisma.guarantor.findUnique({
-    where: { id },
-    select: { applicantId: true },
+  const guarantor = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      archivedAt: null,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
+    select: {
+      id: true,
+      applicantId: true,
+    },
   });
 
   if (!guarantor) return;
 
-  await prisma.guarantor.delete({
-    where: { id },
+  await prisma.guarantor.updateMany({
+    where: {
+      id: guarantor.id,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
+    data: {
+      archivedAt: new Date(),
+    },
   });
 
   if (guarantor.applicantId) {
@@ -57,12 +87,18 @@ async function deleteGuarantor(formData: FormData) {
       where: {
         applicantId: guarantor.applicantId,
         archivedAt: null,
+        applicant: {
+          userId: currentUser.id,
+        },
       },
     });
 
     if (remaining === 0) {
-      await prisma.applicant.update({
-        where: { id: guarantor.applicantId },
+      await prisma.applicant.updateMany({
+        where: {
+          id: guarantor.applicantId,
+          userId: currentUser.id,
+        },
         data: {
           guarantorAvailable: false,
           guarantorOutcome: null,
@@ -81,24 +117,38 @@ async function deleteGuarantor(formData: FormData) {
 async function runAssessment(formData: FormData) {
   "use server";
 
+  const currentUser = await requireSessionUser();
   const id = String(formData.get("id") ?? "");
 
-  const guarantor = await prisma.guarantor.findUnique({
-    where: { id },
-    include: { applicant: true },
+  const guarantor = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      archivedAt: null,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
+    include: {
+      applicant: true,
+    },
   });
 
   if (!guarantor) return;
 
-  const rentPence = await getApplicantRentPence(guarantor.applicantId);
+  const rentPence = await getApplicantRentPence(currentUser.id, guarantor.applicantId);
 
   const result = assessGuarantor({
     rentPence,
     annualIncomePence: guarantor.annualIncomePence,
   });
 
-  await prisma.guarantor.update({
-    where: { id },
+  await prisma.guarantor.updateMany({
+    where: {
+      id,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
     data: {
       assessmentStatus: result.status,
       assessmentScore: result.score,
@@ -107,8 +157,11 @@ async function runAssessment(formData: FormData) {
   });
 
   if (guarantor.applicantId) {
-    await prisma.applicant.update({
-      where: { id: guarantor.applicantId },
+    await prisma.applicant.updateMany({
+      where: {
+        id: guarantor.applicantId,
+        userId: currentUser.id,
+      },
       data: {
         guarantorAvailable: true,
         guarantorOutcome: result.status,
@@ -134,12 +187,21 @@ export default async function GuarantorDetailPage({
   params: Promise<{ id: string }>;
   searchParams?: Promise<{ toast?: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
   const qs = (await searchParams) ?? {};
-  const toastMessage = getToastMessage(typeof qs.toast === "string" ? qs.toast : undefined);
+  const toastMessage = getToastMessage(
+    typeof qs.toast === "string" ? qs.toast : undefined,
+  );
 
-  const guarantor = await prisma.guarantor.findUnique({
-    where: { id },
+  const guarantor = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      archivedAt: null,
+      applicant: {
+        userId: user.id,
+      },
+    },
     include: {
       applicant: true,
     },
@@ -200,7 +262,7 @@ export default async function GuarantorDetailPage({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-3">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Details</h2>
 
         <p><span className="text-slate-500">First name:</span> {guarantor.firstName}</p>
@@ -215,7 +277,7 @@ export default async function GuarantorDetailPage({
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-3">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Assessment</h2>
 
         <p>
@@ -225,10 +287,10 @@ export default async function GuarantorDetailPage({
               guarantor.assessmentStatus === "PASSED"
                 ? "bg-green-100 text-green-700"
                 : guarantor.assessmentStatus === "CONDITIONAL"
-                ? "bg-amber-100 text-amber-700"
-                : guarantor.assessmentStatus === "FAILED"
-                ? "bg-red-100 text-red-700"
-                : "bg-slate-100 text-slate-600"
+                  ? "bg-amber-100 text-amber-700"
+                  : guarantor.assessmentStatus === "FAILED"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-slate-100 text-slate-600"
             }`}
           >
             {guarantor.assessmentStatus ?? "PENDING"}

@@ -1,4 +1,7 @@
+// app/api/guarantors/[id]/route.ts
+
 import { prisma } from "@/lib/prisma";
+import { requireSessionUser } from "@/lib/auth";
 
 function cleanString(value: unknown) {
   const text = String(value ?? "").trim();
@@ -14,8 +17,9 @@ function parseDate(value: unknown) {
 
 export async function PUT(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
+  const currentUser = await requireSessionUser();
   const { id } = await context.params;
   const body = await req.json();
 
@@ -23,13 +27,37 @@ export async function PUT(
   const lastName = String(body.lastName ?? "").trim();
 
   if (!firstName || !lastName) {
-    return new Response("First name and last name are required.", { status: 400 });
+    return new Response("First name and last name are required.", {
+      status: 400,
+    });
+  }
+
+  const existing = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      archivedAt: null,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existing) {
+    return new Response("Guarantor not found.", { status: 404 });
   }
 
   const deedSigned = Boolean(body.deedSigned);
 
-  const guarantor = await prisma.guarantor.update({
-    where: { id },
+  await prisma.guarantor.updateMany({
+    where: {
+      id,
+      applicant: {
+        userId: currentUser.id,
+      },
+    },
     data: {
       firstName,
       lastName,
@@ -52,6 +80,15 @@ export async function PUT(
       deedSignedAt: deedSigned
         ? parseDate(body.deedSignedAt) ?? new Date()
         : null,
+    },
+  });
+
+  const guarantor = await prisma.guarantor.findFirst({
+    where: {
+      id,
+      applicant: {
+        userId: currentUser.id,
+      },
     },
   });
 
