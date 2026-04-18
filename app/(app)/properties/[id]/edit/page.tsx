@@ -1,7 +1,9 @@
-import { prisma } from "@/lib/prisma";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 function formatDate(value?: Date | null) {
   return value ? value.toISOString().slice(0, 10) : "";
@@ -10,8 +12,7 @@ function formatDate(value?: Date | null) {
 const inputClassName =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
 
-const labelClassName =
-  "mb-1 block text-sm font-semibold text-slate-800";
+const labelClassName = "mb-1 block text-sm font-semibold text-slate-800";
 
 export default async function EditPropertyPage({
   params,
@@ -41,9 +42,11 @@ export default async function EditPropertyPage({
     const city = String(formData.get("city") ?? "").trim();
     const postcode = String(formData.get("postcode") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
+
     const advertisedRentMonthlyPounds = Number(
       formData.get("advertisedRentMonthly") ?? 0,
     );
+
     const propertyLicenseExpiresOnRaw = String(
       formData.get("propertyLicenseExpiresOn") ?? "",
     ).trim();
@@ -88,7 +91,9 @@ export default async function EditPropertyPage({
         userId: currentUser.id,
         deletedAt: null,
       },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+      },
     });
 
     redirect("/properties");
@@ -97,19 +102,22 @@ export default async function EditPropertyPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Edit property</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          Edit property
+        </h1>
         <p className="mt-1 text-sm text-slate-600">
           Update the property details below.
         </p>
       </div>
 
       <form
+        id="update-property-form"
         action={updateProperty}
         className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
       >
         <div className="grid gap-5 md:grid-cols-2">
           <div className="md:col-span-2">
-            <label htmlFor="name" className={labelClassName}>
+            <label className={labelClassName} htmlFor="name">
               Property name
             </label>
             <input
@@ -117,11 +125,12 @@ export default async function EditPropertyPage({
               name="name"
               defaultValue={property.name}
               className={inputClassName}
+              required
             />
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="address1" className={labelClassName}>
+            <label className={labelClassName} htmlFor="address1">
               Address line 1
             </label>
             <input
@@ -129,11 +138,12 @@ export default async function EditPropertyPage({
               name="address1"
               defaultValue={property.address1}
               className={inputClassName}
+              required
             />
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="address2" className={labelClassName}>
+            <label className={labelClassName} htmlFor="address2">
               Address line 2
             </label>
             <input
@@ -145,7 +155,7 @@ export default async function EditPropertyPage({
           </div>
 
           <div>
-            <label htmlFor="city" className={labelClassName}>
+            <label className={labelClassName} htmlFor="city">
               City
             </label>
             <input
@@ -153,11 +163,12 @@ export default async function EditPropertyPage({
               name="city"
               defaultValue={property.city}
               className={inputClassName}
+              required
             />
           </div>
 
           <div>
-            <label htmlFor="postcode" className={labelClassName}>
+            <label className={labelClassName} htmlFor="postcode">
               Postcode
             </label>
             <input
@@ -165,21 +176,22 @@ export default async function EditPropertyPage({
               name="postcode"
               defaultValue={property.postcode}
               className={inputClassName}
+              required
             />
           </div>
 
           <div>
-            <label htmlFor="advertisedRentMonthly" className={labelClassName}>
+            <label className={labelClassName} htmlFor="advertisedRentMonthly">
               Rent (£)
             </label>
             <input
               id="advertisedRentMonthly"
               name="advertisedRentMonthly"
               type="number"
-              step="0.01"
               min="0"
+              step="0.01"
               defaultValue={
-                typeof property.advertisedRentMonthly === "number"
+                property.advertisedRentMonthly != null
                   ? (property.advertisedRentMonthly / 100).toFixed(2)
                   : ""
               }
@@ -188,7 +200,7 @@ export default async function EditPropertyPage({
           </div>
 
           <div>
-            <label htmlFor="propertyLicenseExpiresOn" className={labelClassName}>
+            <label className={labelClassName} htmlFor="propertyLicenseExpiresOn">
               Property licence expiry
             </label>
             <input
@@ -201,20 +213,29 @@ export default async function EditPropertyPage({
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="notes" className={labelClassName}>
+            <label className={labelClassName} htmlFor="notes">
               Notes
             </label>
             <textarea
               id="notes"
               name="notes"
-              defaultValue={property.notes ?? ""}
               rows={5}
+              defaultValue={property.notes ?? ""}
               className={inputClassName}
             />
           </div>
         </div>
+      </form>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href={`/properties/${id}`}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+        >
+          Cancel
+        </Link>
+
+        <div className="flex items-center gap-3">
           <form action={deleteProperty}>
             <ConfirmSubmit confirmMessage="Delete property?">
               Delete
@@ -223,12 +244,13 @@ export default async function EditPropertyPage({
 
           <button
             type="submit"
+            form="update-property-form"
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
           >
             Save
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
