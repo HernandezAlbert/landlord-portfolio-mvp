@@ -1,13 +1,15 @@
 import bcrypt from "bcryptjs";
-import { PrismaClient, ApplicantStatus, ComplianceType, ExpenseCategory } from "@prisma/client";
+import {
+  ApplicantStatus,
+  ComplianceType,
+  ExpenseCategory,
+  UserRole,
+} from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 const DEMO_USER_EMAIL =
   process.env.DEMO_USER_EMAIL?.toLowerCase().trim() || "demo.user@example.com";
-
-const DEMO_USER_PASSWORD =
-  process.env.DEMO_USER_PASSWORD || "DemoPass123!";
-
+const DEMO_USER_PASSWORD = process.env.DEMO_USER_PASSWORD || "DemoPass123!";
 const SEED_ADMIN_DEMO_DATA = process.env.SEED_ADMIN_DEMO_DATA === "true";
 
 async function hashPassword(password: string) {
@@ -26,18 +28,28 @@ async function ensureUserSettings(userId: string, email: string) {
   });
 }
 
-async function ensureUser(email: string, password: string) {
+async function ensureUser(
+  email: string,
+  password: string,
+  role: UserRole,
+) {
   const normalizedEmail = email.toLowerCase().trim();
   const passwordHash = await hashPassword(password);
 
   const user = await prisma.user.upsert({
     where: { email: normalizedEmail },
-    update: { passwordHash },
-    create: { email: normalizedEmail, passwordHash },
+    update: {
+      passwordHash,
+      role,
+    },
+    create: {
+      email: normalizedEmail,
+      passwordHash,
+      role,
+    },
   });
 
   await ensureUserSettings(user.id, user.email);
-
   return user;
 }
 
@@ -48,7 +60,7 @@ async function recreateDemoUser(email: string, password: string) {
     where: { email: normalizedEmail },
   });
 
-  return ensureUser(normalizedEmail, password);
+  return ensureUser(normalizedEmail, password, UserRole.USER);
 }
 
 async function createDemoPortfolioForUser(user: { id: string; email: string }) {
@@ -278,7 +290,9 @@ async function maybeSeedAdminPortfolio(user: { id: string; email: string }) {
   });
 
   if (existingProperties > 0) {
-    console.log("Skipping admin demo portfolio because admin already has properties.");
+    console.log(
+      "Skipping admin demo portfolio because admin already has properties.",
+    );
     return;
   }
 
@@ -300,7 +314,11 @@ async function main() {
     throw new Error("DEMO_USER_EMAIL must not match ADMIN_EMAIL.");
   }
 
-  const adminUser = await ensureUser(normalizedAdminEmail, adminPassword);
+  const adminUser = await ensureUser(
+    normalizedAdminEmail,
+    adminPassword,
+    UserRole.ADMIN,
+  );
   console.log("Admin user ensured:", adminUser.email);
 
   if (process.env.SEED_DEMO_DATA !== "true") {

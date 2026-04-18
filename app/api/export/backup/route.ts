@@ -1,10 +1,15 @@
+import { requireAdminSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
+  await requireAdminSessionUser();
+
   const data = {
     exportedAt: new Date().toISOString(),
     users: await prisma.user.findMany(),
-    properties: await prisma.property.findMany({ include: { mortgage: true } }),
+    properties: await prisma.property.findMany({
+      include: { mortgage: true },
+    }),
     tenants: await prisma.tenant.findMany(),
     tenancies: await prisma.tenancy.findMany(),
     tenancyTenants: await prisma.tenancyTenant.findMany(),
@@ -16,14 +21,17 @@ export async function GET() {
     contactLogs: await prisma.contactLog.findMany(),
     actionOverrides: await prisma.actionOverride.findMany(),
     reminderConfigs: await prisma.reminderConfig.findMany(),
-    emailLogs: await prisma.emailLog.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
+    emailLogs: await prisma.emailLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    }),
     mortgageDetails: await prisma.mortgageDetail.findMany(),
   };
 
   return new Response(JSON.stringify(data, null, 2), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Content-Disposition": `attachment; filename="landlord-portfolio-backup-${new Date().toISOString().slice(0,10)}.json"`,
+      "Content-Disposition": `attachment; filename="landlord-portfolio-backup-${new Date().toISOString().slice(0, 10)}.json"`,
     },
   });
 }

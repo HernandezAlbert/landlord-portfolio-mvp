@@ -9,6 +9,12 @@ const COOKIE_NAME = "lp_session";
 const PASSWORD_RESET_TOKEN_TTL_HOURS = 1;
 const PASSWORD_RESET_PASSWORD_MIN_LENGTH = 8;
 
+type SessionUser = {
+  id: string;
+  email: string;
+  role: "USER" | "ADMIN";
+};
+
 function getSecret() {
   const secret = process.env.AUTH_SECRET;
 
@@ -42,7 +48,10 @@ function hashResetToken(token: string) {
 }
 
 async function setSessionCookie(user: { id: string; email: string }) {
-  const token = await new SignJWT({ sub: user.id, email: user.email })
+  const token = await new SignJWT({
+    sub: user.id,
+    email: user.email,
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -81,6 +90,11 @@ export async function signIn(email: string, password: string) {
 
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
+    select: {
+      id: true,
+      email: true,
+      passwordHash: true,
+    },
   });
 
   if (!user) {
@@ -185,7 +199,9 @@ export async function createPasswordReset(email: string, requestUrl?: string) {
 
   const token = randomBytes(32).toString("hex");
   const tokenHash = hashResetToken(token);
-  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    Date.now() + PASSWORD_RESET_TOKEN_TTL_HOURS * 60 * 60 * 1000,
+  );
 
   await prisma.$transaction(async (tx) => {
     await tx.passwordResetToken.deleteMany({
@@ -300,7 +316,7 @@ export async function signOut() {
   });
 }
 
-export async function getSessionUser() {
+export async function getSessionUser(): Promise<SessionUser | null> {
   const jar = await cookies();
   const token = jar.get(COOKIE_NAME)?.value;
 
@@ -315,9 +331,23 @@ export async function getSessionUser() {
       return null;
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: String(payload.sub) },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
     return {
-      id: String(payload.sub),
-      email: String(payload.email ?? ""),
+      id: user.id,
+      email: user.email,
+      role: user.role,
     };
   } catch {
     return null;
@@ -337,9 +367,9 @@ export async function requireSessionUser() {
 export async function requireAdminSessionUser() {
   const user = await requireSessionUser();
 
-  if (!isAdminEmail(user.email)) {
-    throw new Error("Forbidden");
+  if (user.role === "ADMIN" || isAdminEmail(user.email)) {
+    return user;
   }
 
-  return user;
+  throw new Error("Forbidden");
 }

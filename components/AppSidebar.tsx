@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const items = [
+const baseItems = [
   ["/dashboard", "Dashboard"],
   ["/properties", "Properties"],
   ["/tenancies", "Tenancies"],
@@ -16,18 +16,31 @@ const items = [
   ["/actions", "Weekly Actions"],
   ["/automation", "Automation"],
   ["/notices", "Notices"],
-  ["/settings", "Settings"],  
+  ["/settings", "Settings"],
 ] as const;
 
-export default function AppSidebar({ email }: { email: string }) {
+const adminItems = [["/admin/support", "Admin Support"]] as const;
+
+type AppSidebarProps = {
+  email: string;
+  role: "USER" | "ADMIN";
+};
+
+export default function AppSidebar({ email, role }: AppSidebarProps) {
   const pathname = usePathname();
+  const items = role === "ADMIN" ? [...baseItems, ...adminItems] : baseItems;
 
   return (
     <aside className="border-r border-slate-200 bg-slate-950 text-slate-100">
       <div className="sticky top-0 flex min-h-screen flex-col p-4">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl shadow-slate-950/30">
-          <div className="text-lg font-black tracking-tight">Landlord Portfolio</div>
+          <div className="text-lg font-black tracking-tight">
+            Landlord Portfolio
+          </div>
           <div className="mt-1 text-xs text-slate-400">{email}</div>
+          <div className="mt-2 inline-flex rounded-full border border-slate-700 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+            {role}
+          </div>
         </div>
 
         <nav className="mt-4 grid gap-2">
@@ -35,7 +48,9 @@ export default function AppSidebar({ email }: { email: string }) {
             const active =
               href === "/finance"
                 ? pathname === href
-                : pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
+                : pathname === href ||
+                  (href !== "/dashboard" && pathname.startsWith(`${href}/`));
+
             return (
               <Link
                 key={href}
@@ -53,7 +68,10 @@ export default function AppSidebar({ email }: { email: string }) {
         </nav>
 
         <form action="/api/auth/logout" method="post" className="mt-auto pt-6">
-          <button type="submit" className="btn btn-secondary w-full border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800">
+          <button
+            type="submit"
+            className="btn btn-secondary w-full border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+          >
             Logout
           </button>
         </form>
