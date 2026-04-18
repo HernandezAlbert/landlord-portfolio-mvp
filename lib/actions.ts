@@ -1,3 +1,6 @@
+// lib/actions.ts
+// Replace the entire file with this exact version.
+
 import { prisma } from "./prisma";
 import { daysBetween, ragFromDaysRemaining } from "./rag";
 import { getTenancyArrears, isSection8Eligible } from "./arrears";
@@ -21,7 +24,7 @@ export async function buildWeeklyActionList(
   userId: string,
   asOf = new Date(),
 ): Promise<ActionItem[]> {
-  const [properties, tenancies] = await Promise.all([
+  const [properties, tenancies, overrides] = await Promise.all([
     prisma.property.findMany({
       where: { deletedAt: null, userId },
       include: {
@@ -31,7 +34,6 @@ export async function buildWeeklyActionList(
       },
       orderBy: { createdAt: "asc" },
     }),
-
     prisma.tenancy.findMany({
       where: {
         isActive: true,
@@ -40,6 +42,10 @@ export async function buildWeeklyActionList(
       },
       include: {
         property: { select: { id: true, name: true } },
+        notices: {
+          where: { deletedAt: null },
+          select: { id: true, type: true, dateServed: true },
+        },
         tenants: {
           include: {
             tenant: {
@@ -55,16 +61,20 @@ export async function buildWeeklyActionList(
       },
       orderBy: { createdAt: "asc" },
     }),
+    prisma.actionOverride.findMany({
+      where: { userId },
+    }),
   ]);
 
+  const overrideByKey = new Map(overrides.map((o) => [o.key, o]));
   const actions: ActionItem[] = [];
 
   for (const prop of properties) {
     for (const c of prop.compliance) {
       const days = c.expiresOn ? daysBetween(asOf, c.expiresOn) : null;
       const rag = ragFromDaysRemaining(days);
-
       let nextAction = "No action";
+
       if (days === null) nextAction = "Confirm expiry date";
       else if (days < 0) nextAction = `Expired: renew ${c.type}`;
       else if (days <= 30) nextAction = `Renew ${c.type} now`;
@@ -87,8 +97,8 @@ export async function buildWeeklyActionList(
     if (prop.propertyLicenseExpiresOn) {
       const days = daysBetween(asOf, prop.propertyLicenseExpiresOn);
       const rag = ragFromDaysRemaining(days);
-
       let nextAction = "No action";
+
       if (days < 0) nextAction = "Property licence expired: renew now";
       else if (days <= 30) nextAction = "Renew property licence now";
       else if (days <= 60) nextAction = "Prepare property licence renewal";
@@ -116,6 +126,7 @@ export async function buildWeeklyActionList(
         days === null ? "GREEN" : days <= 30 ? "RED" : days <= 90 ? "AMBER" : "GREEN";
 
       let nextAction = "No action";
+
       if (days === null) nextAction = "Confirm mortgage product end date";
       else if (days < 0) nextAction = "Mortgage product ended: review / remortgage now";
       else if (days <= 30) nextAction = "Mortgage product ending soon: remortgage now";
@@ -138,8 +149,8 @@ export async function buildWeeklyActionList(
     for (const i of prop.inspections) {
       const days = i.nextDue ? daysBetween(asOf, i.nextDue) : null;
       const rag = ragFromDaysRemaining(days);
-
       let nextAction = "No action";
+
       if (days === null) nextAction = "Set next inspection due";
       else if (days < 0) nextAction = "Overdue: schedule inspection";
       else if (days <= 30) nextAction = "Schedule inspection";
@@ -160,6 +171,31 @@ export async function buildWeeklyActionList(
   }
 
   for (const t of tenancies) {
+    for (const notice of t.notices) {
+      const dueDate = notice.dateServed ?? null;
+      const days = dueDate ? daysBetween(asOf, dueDate) : null;
+      const rag = ragFromDaysRemaining(days);
+      let nextAction = "No action";
+
+      if (days === null) nextAction = "Confirm notice served date";
+      else if (days <= 14) nextAction = "Review notice and next legal step";
+      else if (days <= 30) nextAction = "Check notice progress";
+
+      if (nextAction !== "No action") {
+        actions.push({
+          key: `NOTICE:${notice.id}`,
+          category: "NOTICE",
+          subject: `${t.property.name} (${notice.type})`,
+          propertyId: t.property.id,
+          tenancyId: t.id,
+          nextAction,
+          dueDate,
+          daysRemaining: days,
+          rag,
+        });
+      }
+    }
+
     const arrears = await getTenancyArrears(userId, t.id, asOf);
 
     if (arrears > 0) {
@@ -185,8 +221,8 @@ export async function buildWeeklyActionList(
       if (days > 60) continue;
 
       const rag = ragFromDaysRemaining(days);
-
       let nextAction = "No action";
+
       if (days < 0) nextAction = "Right to Rent expired: repeat check immediately";
       else if (days <= 30) nextAction = "Right to Rent expiring soon: repeat check now";
       else nextAction = "Right to Rent expires within 60 days: prepare follow-up check";
@@ -206,9 +242,20 @@ export async function buildWeeklyActionList(
     }
   }
 
+  const merged = actions
+    .map((action) => {
+      const override = overrideByKey.get(action.key);
+      return {
+        ...action,
+        note: override?.note ?? null,
+        snoozedUntil: override?.snoozedUntil ?? null,
+      };
+    })
+    .filter((action) => !action.snoozedUntil || action.snoozedUntil < asOf);
+
   const rank = (r: string) => (r === "RED" ? 0 : r === "AMBER" ? 1 : 2);
 
-  actions.sort((a, b) => {
+  merged.sort((a, b) => {
     const rr = rank(a.rag) - rank(b.rag);
     if (rr !== 0) return rr;
 
@@ -217,5 +264,5 @@ export async function buildWeeklyActionList(
     return ad - bd;
   });
 
-  return actions;
+  return merged;
 }

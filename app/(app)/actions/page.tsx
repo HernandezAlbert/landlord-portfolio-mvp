@@ -1,3 +1,6 @@
+// app/(app)/actions/page.tsx
+// Replace the entire file with this exact version.
+
 import { buildWeeklyActionList } from "@/lib/actions";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
@@ -16,8 +19,8 @@ export default async function ActionsPage() {
   async function saveOverride(formData: FormData) {
     "use server";
 
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
+    const currentUser = await getSessionUser();
+    if (!currentUser) {
       redirect("/login");
     }
 
@@ -28,8 +31,14 @@ export default async function ActionsPage() {
     if (!key) redirect("/actions");
 
     await prisma.actionOverride.upsert({
-      where: { key },
+      where: {
+        userId_key: {
+          userId: currentUser.id,
+          key,
+        },
+      },
       create: {
+        userId: currentUser.id,
         key,
         note: note || null,
         snoozedUntil: snoozedUntil ? new Date(snoozedUntil) : null,
@@ -46,15 +55,21 @@ export default async function ActionsPage() {
   async function clearOverride(formData: FormData) {
     "use server";
 
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
+    const currentUser = await getSessionUser();
+    if (!currentUser) {
       redirect("/login");
     }
 
     const key = String(formData.get("key") ?? "");
     if (!key) redirect("/actions");
 
-    await prisma.actionOverride.delete({ where: { key } }).catch(() => {});
+    await prisma.actionOverride.deleteMany({
+      where: {
+        userId: currentUser.id,
+        key,
+      },
+    });
+
     redirect("/actions");
   }
 
@@ -84,65 +99,61 @@ export default async function ActionsPage() {
         <table className="min-w-full text-sm">
           <thead className="text-left text-slate-500">
             <tr>
-              <th className="py-2 pr-4">RAG</th>
-              <th className="py-2 pr-4">Category</th>
-              <th className="py-2 pr-4">Subject</th>
-              <th className="py-2 pr-4">Next action</th>
-              <th className="py-2 pr-4">Due</th>
-              <th className="py-2 pr-4">Days</th>
-              <th className="py-2">Note / snooze</th>
+              <th className="pb-3 pr-4">RAG</th>
+              <th className="pb-3 pr-4">Category</th>
+              <th className="pb-3 pr-4">Subject</th>
+              <th className="pb-3 pr-4">Next action</th>
+              <th className="pb-3 pr-4">Due</th>
+              <th className="pb-3 pr-4">Days</th>
+              <th className="pb-3">Note / snooze</th>
             </tr>
           </thead>
+
           <tbody>
             {actions.map((a) => (
-              <tr key={a.key} className="border-t align-top">
-                <td className="py-3 pr-4">
-                  <span
-                    className={
-                      a.rag === "RED"
-                        ? "text-red-600"
-                        : a.rag === "AMBER"
-                          ? "text-amber-600"
-                          : "text-green-600"
-                    }
-                  >
-                    {a.rag}
-                  </span>
-                </td>
-                <td className="py-3 pr-4">{a.category}</td>
-                <td className="py-3 pr-4">{a.subject}</td>
-                <td className="py-3 pr-4">{a.nextAction}</td>
-                <td className="py-3 pr-4">
+              <tr key={a.key} className="align-top border-t">
+                <td className="py-4 pr-4">{a.rag}</td>
+                <td className="py-4 pr-4">{a.category}</td>
+                <td className="py-4 pr-4">{a.subject}</td>
+                <td className="py-4 pr-4">{a.nextAction}</td>
+                <td className="py-4 pr-4">
                   {a.dueDate ? a.dueDate.toISOString().slice(0, 10) : "—"}
                 </td>
-                <td className="py-3 pr-4">{a.daysRemaining ?? "—"}</td>
-                <td className="py-3">
-                  <form action={saveOverride}>
+                <td className="py-4 pr-4">{a.daysRemaining ?? "—"}</td>
+                <td className="py-4">
+                  <form action={saveOverride} className="space-y-3">
                     <input type="hidden" name="key" value={a.key} />
-                    <div className="space-y-3">
+
+                    <div>
+                      <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Note
+                      </label>
                       <textarea
                         name="note"
                         defaultValue={a.note ?? ""}
-                        rows={3}
+                        rows={2}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                        placeholder="Add note"
                       />
-                      <div className="flex flex-wrap items-center gap-3">
-                        <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                          Snooze until
-                        </label>
-                        <input
-                          type="date"
-                          name="snoozedUntil"
-                          defaultValue={
-                            a.snoozedUntil ? a.snoozedUntil.toISOString().slice(0, 10) : ""
-                          }
-                          className="rounded-lg border border-slate-300 px-3 py-2"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <SubmitButton pendingLabel="Saving...">Save action note</SubmitButton>
-                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Snooze until
+                      </label>
+                      <input
+                        type="date"
+                        name="snoozedUntil"
+                        defaultValue={
+                          a.snoozedUntil ? a.snoozedUntil.toISOString().slice(0, 10) : ""
+                        }
+                        className="rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <SubmitButton pendingLabel="Saving...">
+                        Save action note
+                      </SubmitButton>
                     </div>
                   </form>
 

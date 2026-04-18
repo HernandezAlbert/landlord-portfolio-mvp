@@ -9,16 +9,27 @@ datasource db {
 }
 
 model User {
-  id                  String               @id @default(cuid())
-  email               String               @unique
-  passwordHash        String
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  settings            UserSettings?
-  properties          Property[]
-  tenants             Tenant[]
-  applicants          Applicant[]
+  id String @id @default(cuid())
+
+  email String @unique
+
+  passwordHash String
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  settings UserSettings?
+
+  properties Property[]
+
+  tenants Tenant[]
+
+  applicants Applicant[]
+
   passwordResetTokens PasswordResetToken[]
+
+  actionOverrides ActionOverride[]
 }
 
 model UserSettings {
@@ -423,14 +434,25 @@ model ReferencingCheck {
 }
 
 model ActionOverride {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  note        String?
-  snoozedUntil DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
+  id String @id @default(cuid())
 
+  userId String
+
+  key String
+
+  note String?
+
+  snoozedUntil DateTime?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+}
 enum ComplianceType {
   GAS
   EICR
