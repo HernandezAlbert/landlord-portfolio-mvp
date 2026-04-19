@@ -33,7 +33,11 @@ function getSnapshotOwnerUserId(run: {
   }>;
 }) {
   const latest = run.snapshots[0];
-  return latest?.summaryJson?.ownerUserId || latest?.warningsJson?.ownerUserId || null;
+  return (
+    latest?.summaryJson?.ownerUserId ||
+    latest?.warningsJson?.ownerUserId ||
+    null
+  );
 }
 
 export default async function ReportingPage({
@@ -53,7 +57,9 @@ export default async function ReportingPage({
       : 12;
 
   const data = await getReportingDashboardData(sessionUser.id, {
-    status: ["DRAFT", "NEEDS_REVIEW", "READY", "EXPORTED"].includes(selectedStatus)
+    status: ["DRAFT", "NEEDS_REVIEW", "READY", "EXPORTED"].includes(
+      selectedStatus
+    )
       ? (selectedStatus as ReportStatus)
       : "ALL",
     limit: selectedLimit,
@@ -62,220 +68,279 @@ export default async function ReportingPage({
   async function saveSchedule(formData: FormData) {
     "use server";
 
-    const sessionUser = await requireSessionUser();
-    const type = String(formData.get("type") || "ANNUAL") as ReportType;
-    const propertyId = String(formData.get("propertyId") || "") || null;
-    const daysBeforeDue =
-      Math.max(0, Number(formData.get("daysBeforeDue") || 7) || 7);
-    const reminderDays =
-      String(formData.get("reminderDays") || "14,7,3,1").trim() || "14,7,3,1";
-    const isActive = formData.get("isActive") === "on";
-    const autoGenerate = formData.get("autoGenerate") === "on";
-    const reminderEnabled = formData.get("reminderEnabled") === "on";
+    try {
+      const sessionUser = await requireSessionUser();
+      const type = String(formData.get("type") || "ANNUAL") as ReportType;
+      const propertyId = String(formData.get("propertyId") || "") || null;
+      const daysBeforeDue = Math.max(
+        0,
+        Number(formData.get("daysBeforeDue") || 7) || 7
+      );
+      const reminderDays =
+        String(formData.get("reminderDays") || "14,7,3,1").trim() ||
+        "14,7,3,1";
+      const isActive = formData.get("isActive") === "on";
+      const autoGenerate = formData.get("autoGenerate") === "on";
+      const reminderEnabled = formData.get("reminderEnabled") === "on";
 
-    if (!propertyId) return;
+      if (!propertyId) return;
 
-    const ownedProperty = await prisma.property.findFirst({
-      where: {
-        id: propertyId,
-        userId: sessionUser.id,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
+      const ownedProperty = await prisma.property.findFirst({
+        where: {
+          id: propertyId,
+          userId: sessionUser.id,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
 
-    if (!ownedProperty) return;
+      if (!ownedProperty) return;
 
-    await prisma.reportSchedule.create({
-      data: {
-        type,
-        propertyId,
-        daysBeforeDue,
-        reminderDays,
-        isActive,
-        autoGenerate,
-        reminderEnabled,
-      },
-    });
+      await prisma.reportSchedule.create({
+        data: {
+          type,
+          propertyId,
+          daysBeforeDue,
+          reminderDays,
+          isActive,
+          autoGenerate,
+          reminderEnabled,
+        },
+      });
 
-    revalidatePath("/finance/reporting");
+      revalidatePath("/finance/reporting");
+    } catch (error) {
+      console.error("saveSchedule failed:", error);
+      return;
+    }
   }
 
   async function updateRun(formData: FormData) {
     "use server";
 
-    const sessionUser = await requireSessionUser();
-    const runId = String(formData.get("runId") || "");
-    const status = String(formData.get("status") || "DRAFT") as ReportStatus;
-    const finalisedAt =
-      status === "READY" || status === "EXPORTED" ? new Date() : null;
+    try {
+      const sessionUser = await requireSessionUser();
+      const runId = String(formData.get("runId") || "");
+      const status = String(formData.get("status") || "DRAFT") as ReportStatus;
 
-    const run = await prisma.reportRun.findFirst({
-      where: {
-        id: runId,
-        OR: [
-          { property: { userId: sessionUser.id, deletedAt: null } },
-          { propertyId: null },
-        ],
-      },
-      select: {
-        id: true,
-        propertyId: true,
-        snapshots: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            summaryJson: true,
-            warningsJson: true,
+      if (!runId) return;
+
+      const run = await prisma.reportRun.findFirst({
+        where: {
+          id: runId,
+          OR: [
+            { property: { userId: sessionUser.id, deletedAt: null } },
+            { propertyId: null },
+          ],
+        },
+        select: {
+          id: true,
+          propertyId: true,
+          property: {
+            select: { userId: true, deletedAt: true },
+          },
+          snapshots: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              summaryJson: true,
+              warningsJson: true,
+            },
           },
         },
-      },
-    });
-
-    if (!run) return;
-
-    if (!run.propertyId) {
-      const ownerUserId = getSnapshotOwnerUserId({
-        snapshots: run.snapshots.map((snapshot) => ({
-          summaryJson:
-            (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
-          warningsJson:
-            (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
-        })),
       });
 
-      if (ownerUserId !== sessionUser.id) return;
+      if (!run) return;
+
+      if (run.propertyId) {
+        if (
+          !run.property ||
+          run.property.deletedAt ||
+          run.property.userId !== sessionUser.id
+        ) {
+          return;
+        }
+      } else {
+        const ownerUserId = getSnapshotOwnerUserId({
+          snapshots: run.snapshots.map((snapshot) => ({
+            summaryJson:
+              (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
+            warningsJson:
+              (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
+          })),
+        });
+
+        if (!ownerUserId || ownerUserId !== sessionUser.id) return;
+      }
+
+      const finalisedAt =
+        status === "READY" || status === "EXPORTED" ? new Date() : null;
+
+      await prisma.reportRun.update({
+        where: { id: runId },
+        data: { status, finalisedAt },
+      });
+
+      revalidatePath("/finance/reporting");
+    } catch (error) {
+      console.error("updateRun failed:", error);
+      return;
     }
-
-    await prisma.reportRun.update({
-      where: { id: runId },
-      data: { status, finalisedAt },
-    });
-
-    revalidatePath("/finance/reporting");
   }
 
   async function deleteRun(formData: FormData) {
     "use server";
 
-    const sessionUser = await requireSessionUser();
-    const runId = String(formData.get("runId") || "");
-    if (!runId) return;
+    try {
+      const sessionUser = await requireSessionUser();
+      const runId = String(formData.get("runId") || "");
+      if (!runId) return;
 
-    const run = await prisma.reportRun.findFirst({
-      where: {
-        id: runId,
-        OR: [
-          { property: { userId: sessionUser.id, deletedAt: null } },
-          { propertyId: null },
-        ],
-      },
-      select: {
-        id: true,
-        propertyId: true,
-        snapshots: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            summaryJson: true,
-            warningsJson: true,
+      const run = await prisma.reportRun.findFirst({
+        where: {
+          id: runId,
+          OR: [
+            { property: { userId: sessionUser.id, deletedAt: null } },
+            { propertyId: null },
+          ],
+        },
+        select: {
+          id: true,
+          propertyId: true,
+          property: {
+            select: { userId: true, deletedAt: true },
+          },
+          snapshots: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              summaryJson: true,
+              warningsJson: true,
+            },
           },
         },
-      },
-    });
-
-    if (!run) return;
-
-    if (!run.propertyId) {
-      const ownerUserId = getSnapshotOwnerUserId({
-        snapshots: run.snapshots.map((snapshot) => ({
-          summaryJson:
-            (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
-          warningsJson:
-            (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
-        })),
       });
 
-      if (ownerUserId !== sessionUser.id) return;
+      if (!run) return;
+
+      if (run.propertyId) {
+        if (
+          !run.property ||
+          run.property.deletedAt ||
+          run.property.userId !== sessionUser.id
+        ) {
+          return;
+        }
+      } else {
+        const ownerUserId = getSnapshotOwnerUserId({
+          snapshots: run.snapshots.map((snapshot) => ({
+            summaryJson:
+              (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
+            warningsJson:
+              (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
+          })),
+        });
+
+        if (!ownerUserId || ownerUserId !== sessionUser.id) return;
+      }
+
+      await prisma.reportRun.delete({
+        where: { id: runId },
+      });
+
+      revalidatePath("/finance/reporting");
+    } catch (error) {
+      console.error("deleteRun failed:", error);
+      return;
     }
-
-    await prisma.reportRun.delete({
-      where: { id: runId },
-    });
-
-    revalidatePath("/finance/reporting");
   }
 
   async function cleanupRuns(formData: FormData) {
     "use server";
 
-    const sessionUser = await requireSessionUser();
-    const mode = String(formData.get("mode") || "exported");
+    try {
+      const sessionUser = await requireSessionUser();
+      const mode = String(formData.get("mode") || "exported");
 
-    const rawRuns = await prisma.reportRun.findMany({
-      where: {
-        OR: [
-          { property: { userId: sessionUser.id, deletedAt: null } },
-          { propertyId: null },
-        ],
-      },
-      select: {
-        id: true,
-        status: true,
-        generatedAt: true,
-        propertyId: true,
-        snapshots: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            summaryJson: true,
-            warningsJson: true,
+      const rawRuns = await prisma.reportRun.findMany({
+        where: {
+          OR: [
+            { property: { userId: sessionUser.id, deletedAt: null } },
+            { propertyId: null },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          generatedAt: true,
+          propertyId: true,
+          property: {
+            select: { userId: true, deletedAt: true },
+          },
+          snapshots: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              summaryJson: true,
+              warningsJson: true,
+            },
           },
         },
-      },
-      orderBy: { generatedAt: "desc" },
-      take: 500,
-    });
-
-    const ownedRuns = rawRuns.filter((run) => {
-      if (run.propertyId) return true;
-      const ownerUserId = getSnapshotOwnerUserId({
-        snapshots: run.snapshots.map((snapshot) => ({
-          summaryJson:
-            (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
-          warningsJson:
-            (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
-        })),
+        orderBy: { generatedAt: "desc" },
+        take: 500,
       });
-      return ownerUserId === sessionUser.id;
-    });
 
-    if (mode === "exported") {
-      const deleteIds = ownedRuns
-        .filter((run) => run.status === "EXPORTED")
-        .map((run) => run.id);
+      const ownedRuns = rawRuns.filter((run) => {
+        if (run.propertyId) {
+          return (
+            !!run.property &&
+            !run.property.deletedAt &&
+            run.property.userId === sessionUser.id
+          );
+        }
 
-      if (deleteIds.length) {
-        await prisma.reportRun.deleteMany({
-          where: { id: { in: deleteIds } },
+        const ownerUserId = getSnapshotOwnerUserId({
+          snapshots: run.snapshots.map((snapshot) => ({
+            summaryJson:
+              (snapshot.summaryJson as { ownerUserId?: string } | null) ?? null,
+            warningsJson:
+              (snapshot.warningsJson as { ownerUserId?: string } | null) ?? null,
+          })),
         });
+
+        return ownerUserId === sessionUser.id;
+      });
+
+      if (mode === "exported") {
+        const deleteIds = ownedRuns
+          .filter((run) => run.status === "EXPORTED")
+          .map((run) => run.id);
+
+        if (deleteIds.length) {
+          await prisma.reportRun.deleteMany({
+            where: { id: { in: deleteIds } },
+          });
+        }
       }
-    }
 
-    if (mode === "older") {
-      const keepIds = ownedRuns.slice(0, 20).map((run) => run.id);
-      const deleteIds = ownedRuns
-        .filter((run) => !keepIds.includes(run.id))
-        .map((run) => run.id);
+      if (mode === "older") {
+        const keepIds = ownedRuns.slice(0, 20).map((run) => run.id);
+        const deleteIds = ownedRuns
+          .filter((run) => !keepIds.includes(run.id))
+          .map((run) => run.id);
 
-      if (deleteIds.length) {
-        await prisma.reportRun.deleteMany({
-          where: { id: { in: deleteIds } },
-        });
+        if (deleteIds.length) {
+          await prisma.reportRun.deleteMany({
+            where: { id: { in: deleteIds } },
+          });
+        }
       }
-    }
 
-    revalidatePath("/finance/reporting");
+      revalidatePath("/finance/reporting");
+    } catch (error) {
+      console.error("cleanupRuns failed:", error);
+      return;
+    }
   }
 
   const filters: Array<{ label: string; value: string; count: number }> = [
@@ -307,7 +372,10 @@ export default async function ReportingPage({
             <Link href="/finance" className="btn btn-secondary btn-sm">
               Back to finance
             </Link>
-            <Link href="/finance/reporting/scheduler" className="btn btn-secondary btn-sm">
+            <Link
+              href="/finance/reporting/scheduler"
+              className="btn btn-secondary btn-sm"
+            >
               Run scheduler
             </Link>
           </div>
@@ -320,8 +388,8 @@ export default async function ReportingPage({
             Generate report now
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Create a draft pack instantly. You can export summary CSV, detailed CSV,
-            PDF, or a bundled accountant pack from the runs below.
+            Create a draft pack instantly. You can export summary CSV, detailed
+            CSV, PDF, or a bundled accountant pack from the runs below.
           </p>
           <div className="mt-3 text-sm text-slate-700">
             Current tax year {data.currentTaxYearStart}/
@@ -333,8 +401,8 @@ export default async function ReportingPage({
               Annual accountant pack
             </div>
             <p className="mt-1 text-sm text-slate-500">
-              Includes all income and expenses for the selected tax year across your
-              portfolio.
+              Includes all income and expenses for the selected tax year across
+              your portfolio.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {data.availableYears.map((year) => (
@@ -350,7 +418,9 @@ export default async function ReportingPage({
           </div>
 
           <div className="mt-6">
-            <div className="text-sm font-semibold text-slate-900">Quarterly draft</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Quarterly draft
+            </div>
             <p className="mt-1 text-sm text-slate-500">
               Generate quarter-by-quarter snapshots aligned to the UK tax year.
             </p>
@@ -454,7 +524,9 @@ export default async function ReportingPage({
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold text-slate-900">Saved schedules</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Saved schedules
+            </div>
             <p className="mt-1 text-sm text-slate-500">
               These rules are used by the reporting cron endpoint.
             </p>
@@ -472,7 +544,8 @@ export default async function ReportingPage({
                 className="rounded-xl border border-slate-200 p-4"
               >
                 <div className="font-semibold text-slate-900">
-                  {titleCase(schedule.type)} · {schedule.property?.name || "All properties"}
+                  {titleCase(schedule.type)} ·{" "}
+                  {schedule.property?.name || "All properties"}
                 </div>
                 <div className="mt-1 text-slate-500">
                   {schedule.property?.name || "All properties"} · Generate{" "}
@@ -503,10 +576,12 @@ export default async function ReportingPage({
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold text-slate-900">Recent report runs</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Recent report runs
+            </div>
             <p className="mt-1 text-sm text-slate-500">
-              Filter the list, trim old runs, or delete exports you no longer need so
-              the reporting area stays tidy.
+              Filter the list, trim old runs, or delete exports you no longer
+              need so the reporting area stays tidy.
             </p>
           </div>
           <div className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600">
@@ -521,7 +596,9 @@ export default async function ReportingPage({
               <Link
                 key={filter.value}
                 href={buildRunLink(filter.value, data.limit)}
-                className={`btn btn-sm ${active ? "btn-primary" : "btn-secondary"}`}
+                className={`btn btn-sm ${
+                  active ? "btn-primary" : "btn-secondary"
+                }`}
               >
                 {filter.label} ({filter.count})
               </Link>
@@ -580,15 +657,20 @@ export default async function ReportingPage({
                 >
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <div className="font-semibold text-slate-900">{displayTitle}</div>
+                      <div className="font-semibold text-slate-900">
+                        {displayTitle}
+                      </div>
                       <div className="mt-1 text-sm text-slate-500">
-                        {formatDate(run.periodStart)} to {formatDate(run.periodEnd)} · Due{" "}
+                        {formatDate(run.periodStart)} to{" "}
+                        {formatDate(run.periodEnd)} · Due{" "}
                         {formatDate(run.dueDate)} ·{" "}
-                        {summary?.propertyScope || run.property?.name || "All properties"}
+                        {summary?.propertyScope ||
+                          run.property?.name ||
+                          "All properties"}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {titleCase(run.status)} · Generated {formatDate(run.generatedAt)} ·{" "}
-                        {run.generatedBy}
+                        {titleCase(run.status)} · Generated{" "}
+                        {formatDate(run.generatedAt)} · {run.generatedBy}
                       </div>
                     </div>
 
@@ -615,30 +697,30 @@ export default async function ReportingPage({
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-sm">
-                    <Link
+                    <a
                       href={`/api/reports/${run.id}/summary.csv`}
                       className="btn btn-secondary btn-sm"
                     >
                       Export summary CSV
-                    </Link>
-                    <Link
+                    </a>
+                    <a
                       href={`/api/reports/${run.id}/detailed.csv`}
                       className="btn btn-secondary btn-sm"
                     >
                       Export detailed CSV
-                    </Link>
-                    <Link
+                    </a>
+                    <a
                       href={`/api/reports/${run.id}/pdf`}
                       className="btn btn-secondary btn-sm"
                     >
                       Export PDF
-                    </Link>
-                    <Link
+                    </a>
+                    <a
                       href={`/api/reports/${run.id}/accountant-pack`}
                       className="btn btn-secondary btn-sm"
                     >
                       Download accountant pack
-                    </Link>
+                    </a>
                   </div>
 
                   {warnings.length ? (
@@ -655,7 +737,10 @@ export default async function ReportingPage({
                   ) : null}
 
                   <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <form action={updateRun} className="flex flex-wrap items-center gap-2">
+                    <form
+                      action={updateRun}
+                      className="flex flex-wrap items-center gap-2"
+                    >
                       <input type="hidden" name="runId" value={run.id} />
                       <select
                         name="status"
