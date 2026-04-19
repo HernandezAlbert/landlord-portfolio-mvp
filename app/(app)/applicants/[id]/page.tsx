@@ -482,9 +482,13 @@ export default async function ApplicantDetailPage({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link href="/applicants" className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">
+          <Link
+            href="/applicants"
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+          >
             Back to applicants
           </Link>
+
           {applicant.email ? (
             <a
               href={`mailto:${applicant.email}`}
@@ -493,6 +497,13 @@ export default async function ApplicantDetailPage({
               Email applicant
             </a>
           ) : null}
+
+          <Link
+            href={`/applicants/${applicant.id}/holding-deposit`}
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+          >
+            Holding Deposit
+          </Link>
         </div>
       </div>
 
