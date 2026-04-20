@@ -54,11 +54,16 @@ export default async function TenancyDetailPage({
     },
     include: {
       property: true,
-      tenants: { include: { tenant: true } },
+      tenants: {
+        include: {
+          tenant: true,
+        },
+      },
     },
   });
 
   if (!tenancyResult) redirect("/tenancies");
+
   const tenancy = tenancyResult;
 
   const [recentPayments, recentNotices, recentContacts, allTenants] =
@@ -248,7 +253,11 @@ export default async function TenancyDetailPage({
 
     await prisma.tenancyTenant
       .create({
-        data: { tenancyId: id, tenantId, role: "Joint" },
+        data: {
+          tenancyId: id,
+          tenantId,
+          role: "Joint",
+        },
       })
       .catch(() => {});
 
@@ -287,7 +296,9 @@ export default async function TenancyDetailPage({
 
     await prisma.tenancyTenant
       .delete({
-        where: { tenancyId_tenantId: { tenancyId: id, tenantId } },
+        where: {
+          tenancyId_tenantId: { tenancyId: id, tenantId },
+        },
       })
       .catch(() => {});
 
@@ -310,13 +321,22 @@ export default async function TenancyDetailPage({
       },
       include: {
         property: true,
-        tenants: { include: { tenant: true } },
+        tenants: {
+          include: {
+            tenant: true,
+          },
+        },
       },
     });
 
     if (!owned) redirect("/tenancies");
 
-    const currentArrears = await getTenancyArrears(currentUser.id, owned.id, new Date());
+    const currentArrears = await getTenancyArrears(
+      currentUser.id,
+      owned.id,
+      new Date()
+    );
+
     const emails = owned.tenants
       .map((t) => t.tenant.email)
       .filter(Boolean) as string[];
@@ -324,8 +344,18 @@ export default async function TenancyDetailPage({
     if (!emails.length || currentArrears <= 0) redirect(`/tenancies/${id}`);
 
     const subject = `Rent arrears reminder — ${owned.property.name}`;
-    const text = `Rent arrears are currently ${formatMoney(currentArrears)} for ${owned.property.address1}, ${owned.property.postcode}. Please arrange payment as soon as possible.`;
-    const html = `<p>Rent arrears are currently <strong>${formatMoney(currentArrears)}</strong> for <strong>${owned.property.address1}, ${owned.property.postcode}</strong>.</p><p>Please arrange payment as soon as possible.</p>`;
+    const text = `Rent arrears are currently ${formatMoney(
+      currentArrears
+    )} for ${owned.property.address1}, ${owned.property.postcode}.
+
+Please arrange payment as soon as possible.`;
+
+    const html = `
+<p>Rent arrears are currently <strong>${formatMoney(
+      currentArrears
+    )}</strong> for ${owned.property.address1}, ${owned.property.postcode}.</p>
+<p>Please arrange payment as soon as possible.</p>
+`;
 
     for (const to of emails) {
       const result = await sendEmailSafe({ to, subject, text, html });
@@ -341,6 +371,7 @@ export default async function TenancyDetailPage({
     "use server";
 
     const currentUser = await requireSessionUser();
+
     const owned = await prisma.tenancy.findFirst({
       where: {
         id,
@@ -363,11 +394,13 @@ export default async function TenancyDetailPage({
     "use server";
 
     const currentUser = await requireSessionUser();
+
     const autoGenerateRent =
       String(formData.get("autoGenerateRent") ?? "true") === "true";
+
     const monthsAhead = Math.min(
       Math.max(Number(formData.get("rentGenerateMonthsAhead") ?? 3), 1),
-      24,
+      24
     );
 
     await prisma.tenancy.updateMany({
@@ -384,7 +417,10 @@ export default async function TenancyDetailPage({
       },
     });
 
-    if (autoGenerateRent) await ensureRentScheduleForTenancy(currentUser.id, id, new Date());
+    if (autoGenerateRent) {
+      await ensureRentScheduleForTenancy(currentUser.id, id, new Date());
+    }
+
     redirect(`/tenancies/${id}`);
   }
 
@@ -406,11 +442,105 @@ export default async function TenancyDetailPage({
       },
       select: {
         id: true,
+        propertyId: true,
         endDate: true,
+        property: {
+          select: {
+            name: true,
+          },
+        },
+        tenants: {
+          include: {
+            tenant: {
+              select: {
+                fullName: true,
+              },
+            },
+          },
+        },
       },
     });
 
     if (!owned) redirect("/tenancies");
+
+    if (isActive) {
+      const tenantIds = owned.tenants.map((tt) => tt.tenantId);
+
+      const conflictingPropertyTenancy = await prisma.tenancy.findFirst({
+        where: {
+          id: { not: id },
+          propertyId: owned.propertyId,
+          deletedAt: null,
+          isActive: true,
+          property: {
+            userId: currentUser.id,
+            deletedAt: null,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (conflictingPropertyTenancy) {
+        redirect(
+          `/tenancies/${id}?error=${encodeURIComponent(
+            `${owned.property.name} already has another active tenancy. End that tenancy first before saving this one as active.`
+          )}`
+        );
+      }
+
+      if (tenantIds.length > 0) {
+        const conflictingTenantTenancy = await prisma.tenancy.findFirst({
+          where: {
+            id: { not: id },
+            deletedAt: null,
+            isActive: true,
+            property: {
+              userId: currentUser.id,
+              deletedAt: null,
+            },
+            tenants: {
+              some: {
+                tenantId: { in: tenantIds },
+              },
+            },
+          },
+          include: {
+            property: {
+              select: {
+                name: true,
+              },
+            },
+            tenants: {
+              include: {
+                tenant: {
+                  select: {
+                    fullName: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (conflictingTenantTenancy) {
+          const conflictingNames = conflictingTenantTenancy.tenants
+            .filter((tt) => tenantIds.includes(tt.tenantId))
+            .map((tt) => tt.tenant.fullName)
+            .join(", ");
+
+          const propertyName =
+            conflictingTenantTenancy.property?.name || "another property";
+
+          redirect(
+            `/tenancies/${id}?error=${encodeURIComponent(
+              `${
+                conflictingNames || "One or more tenants"
+              } are already on another active tenancy at ${propertyName}. End that tenancy first before saving this one as active.`
+            )}`
+          );
+        }
+      }
+    }
 
     await prisma.tenancy.updateMany({
       where: {
@@ -422,11 +552,11 @@ export default async function TenancyDetailPage({
       },
       data: {
         isActive,
-        endDate: !isActive && endDate
-          ? new Date(endDate)
-          : isActive
-            ? null
-            : owned.endDate,
+        endDate: !isActive
+          ? endDate
+            ? new Date(endDate)
+            : owned.endDate
+          : null,
       },
     });
 
@@ -446,179 +576,155 @@ export default async function TenancyDetailPage({
           deletedAt: null,
         },
       },
-      data: { deletedAt: new Date(), isActive: false },
+      data: {
+        deletedAt: new Date(),
+        isActive: false,
+      },
     });
 
     redirect("/tenancies");
   }
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      {error ? <div className="banner banner-danger">{error}</div> : null}
+    <div className="space-y-6">
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
       {sent ? (
-        <div className="banner banner-success">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           Arrears reminder email sent.
         </div>
       ) : null}
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-        }}
-      >
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Tenancy</h1>
-          <div style={{ opacity: 0.75 }}>
+          <h1 className="text-2xl font-semibold">Tenancy</h1>
+          <p className="text-slate-600">
             {tenancy.property.name} — Start{" "}
             {tenancy.startDate.toISOString().slice(0, 10)} — Rent{" "}
             {money(tenancy.rentMonthly)}
-          </div>
+          </p>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+
+        <div className="flex gap-2">
           <a
             href={`/tenancies/${id}/edit`}
-            className="btn btn-secondary btn-sm"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
           >
             Edit
           </a>
+
           <form action={deleteTenancy}>
             <ConfirmSubmit
-              className="btn btn-secondary btn-sm"
-              confirmMessage="Archive this tenancy?"
+              title="Archive tenancy?"
+              description="This will hide the tenancy from active lists."
+              confirmText="Archive tenancy"
+              className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700"
             >
               Archive
             </ConfirmSubmit>
           </form>
-          <a href="/tenancies" className="btn btn-secondary btn-sm">
+
+          <a
+            href="/tenancies"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
+          >
             Back
           </a>
         </div>
       </div>
 
-      <section
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 8,
-          padding: 12,
-          display: "grid",
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Status</h2>
-          <div style={{ fontWeight: 800 }}>Arrears: {money(arrears)}</div>
-          {arrears > 0 && (
-            <form action={emailArrearsReminder}>
-              <button type="submit" className="btn btn-primary btn-sm">
-                Email arrears reminder
-              </button>
-            </form>
-          )}
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Status</h2>
+          <div className="text-xl font-semibold">Arrears: {money(arrears)}</div>
         </div>
 
-        <form
-          action={toggleActive}
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "end",
-            flexWrap: "wrap",
-          }}
-        >
-          <label>
-            Active?
-            <select name="isActive" defaultValue={String(tenancy.isActive)}>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
-          </label>
-
-          <label>
-            End date (if not active)
-            <input type="date" name="endDate" defaultValue={fmt(tenancy.endDate)} />
-          </label>
-
-          <button type="submit" className="btn btn-primary btn-sm">
-            Save
-          </button>
-        </form>
-      </section>
-
-      <section
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 8,
-          padding: 12,
-          display: "grid",
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
-            Automatic rent tracking
-          </h2>
-          <form action={generateRentNow}>
-            <button type="submit" className="btn btn-secondary btn-sm">
-              Run now
+        {arrears > 0 && (
+          <form action={emailArrearsReminder} className="mt-3">
+            <button className="rounded-xl border px-4 py-2 text-sm font-medium">
+              Email arrears reminder
             </button>
           </form>
-        </div>
+        )}
 
-        <p style={{ margin: 0, opacity: 0.75 }}>
-          Automatically creates missing monthly rent due rows ahead of time, so
-          arrears and payment status stay current.
-        </p>
-
-        <form
-          action={saveAutoRent}
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "end",
-            flexWrap: "wrap",
-          }}
-        >
-          <label>
-            Enabled
+        <form action={toggleActive} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Active?</span>
             <select
-              name="autoGenerateRent"
-              defaultValue={String(tenancy.autoGenerateRent)}
+              name="isActive"
+              defaultValue={tenancy.isActive ? "true" : "false"}
+              className="rounded-xl border px-3 py-2"
             >
               <option value="true">Yes</option>
               <option value="false">No</option>
             </select>
           </label>
 
-          <label>
-            Months ahead
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">
+              End date (if not active)
+            </span>
             <input
-              type="number"
-              name="rentGenerateMonthsAhead"
-              min={1}
-              max={24}
-              defaultValue={tenancy.rentGenerateMonthsAhead}
+              type="date"
+              name="endDate"
+              defaultValue={fmt(tenancy.endDate)}
+              className="rounded-xl border px-3 py-2"
             />
           </label>
 
-          <div style={{ opacity: 0.75 }}>
+          <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+            Save
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Automatic rent tracking</h2>
+            <p className="mt-1 text-slate-600">
+              Automatically creates missing monthly rent due rows ahead of time,
+              so arrears and payment status stay current.
+            </p>
+          </div>
+
+          <form action={generateRentNow}>
+            <button className="rounded-xl border px-4 py-2 text-sm font-medium">
+              Run now
+            </button>
+          </form>
+        </div>
+
+        <form action={saveAutoRent} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Enabled</span>
+            <select
+              name="autoGenerateRent"
+              defaultValue={tenancy.autoGenerateRent ? "true" : "false"}
+              className="rounded-xl border px-3 py-2"
+            >
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </label>
+
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Months ahead</span>
+            <input
+              type="number"
+              min={1}
+              max={24}
+              name="rentGenerateMonthsAhead"
+              defaultValue={tenancy.rentGenerateMonthsAhead}
+              className="w-24 rounded-xl border px-3 py-2"
+            />
+          </label>
+
+          <div className="text-sm text-slate-500">
             Last run:{" "}
             {tenancy.lastRentGeneratedOn
               ? tenancy.lastRentGeneratedOn
@@ -628,331 +734,283 @@ export default async function TenancyDetailPage({
               : "Never"}
           </div>
 
-          <button type="submit" className="btn btn-primary btn-sm">
+          <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white">
             Save auto-rent settings
           </button>
         </form>
       </section>
 
-      <section
-        style={{ border: "1px solid #eee", borderRadius: 8, padding: 12 }}
-      >
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Tenants</h2>
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="text-xl font-semibold">Tenants</h2>
 
-        <ul style={{ marginTop: 8 }}>
+        <ul className="mt-4 space-y-2">
           {tenancy.tenants.map((tt) => (
             <li
               key={tt.tenantId}
-              style={{ display: "flex", gap: 10, alignItems: "center" }}
+              className="flex items-center justify-between gap-3 rounded-xl border p-3"
             >
-              <span>
+              <div>
                 {tt.tenant.fullName}
                 {tt.tenant.email ? ` (${tt.tenant.email})` : ""}
-              </span>
+              </div>
+
               <form action={removeTenantFromTenancy}>
                 <input type="hidden" name="tenantId" value={tt.tenantId} />
-                <ConfirmSubmit confirmMessage="Remove this tenant from the tenancy?">
+                <button className="rounded-xl border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700">
                   Remove
-                </ConfirmSubmit>
+                </button>
               </form>
             </li>
           ))}
         </ul>
 
-        <form
-          action={addTenantToTenancy}
-          style={{
-            marginTop: 10,
-            display: "flex",
-            gap: 10,
-            alignItems: "end",
-            flexWrap: "wrap",
-          }}
-        >
-          <label>
-            Add existing tenant
-            <select name="tenantId" defaultValue="">
-              <option value="">Select…</option>
-              {availableToAdd.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.fullName}
-                  {t.email ? ` (${t.email})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+        <form action={addTenantToTenancy} className="mt-4 flex flex-wrap gap-3">
+          <select
+            name="tenantId"
+            defaultValue=""
+            className="rounded-xl border px-3 py-2"
+          >
+            <option value="">Select…</option>
+            {availableToAdd.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.fullName}
+                {t.email ? ` (${t.email})` : ""}
+              </option>
+            ))}
+          </select>
 
-          <button type="submit">Add</button>
+          <button className="rounded-xl border px-4 py-2 text-sm font-medium">
+            Add
+          </button>
 
-          <a href="/tenants" className="btn btn-secondary btn-sm">
+          <a
+            href="/tenants/new"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
+          >
             Create new tenant
           </a>
         </form>
       </section>
 
-      <section
-        style={{ border: "1px solid #eee", borderRadius: 8, padding: 12 }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
-            Recent payments
-          </h2>
-          <div style={{ display: "flex", gap: 10 }}>
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Recent payments</h2>
+          <div className="flex gap-2">
             <a
               href={`/tenancies/${id}/payments`}
-              className="btn btn-secondary btn-sm"
+              className="rounded-xl border px-4 py-2 text-sm font-medium"
             >
               View full payment history
             </a>
-            <a href="/api/export/payments" className="btn btn-secondary btn-sm">
+            <a
+              href={`/api/payments/export?tenancyId=${id}`}
+              className="rounded-xl border px-4 py-2 text-sm font-medium"
+            >
               Export CSV
             </a>
           </div>
         </div>
 
-        <table
-          cellPadding={10}
-          style={{ borderCollapse: "collapse", width: "100%", marginTop: 8 }}
-        >
-          <thead>
-            <tr>
-              <th align="left">Due date</th>
-              <th align="left">Due</th>
-              <th align="left">Paid</th>
-              <th align="left">Status</th>
-              <th align="left">Line arrears</th>
-              <th align="left">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recentPayments.map((p) => (
-              <tr key={p.id} style={{ borderTop: "1px solid #eee" }}>
-                <td>{fmt(p.dueDate)}</td>
-                <td>{money(p.amountDue)}</td>
-                <td>{money(p.amountPaid)}</td>
-                <td>{getPaymentStatus(p.amountDue, p.amountPaid, p.dueDate, asOf)}</td>
-                <td>{money(p.amountDue - p.amountPaid)}</td>
-                <td>
-                  <a
-                    href={`/tenancies/${id}/payments#${p.id}`}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    Edit
-                  </a>
-                </td>
-              </tr>
-            ))}
-            {!recentPayments.length && (
-              <tr>
-                <td colSpan={6} style={{ opacity: 0.7 }}>
-                  No payments yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <div className="mt-4 overflow-x-auto">
+          {recentPayments.length ? (
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-4">Due date</th>
+                  <th className="pb-2 pr-4">Due</th>
+                  <th className="pb-2 pr-4">Paid</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2 pr-4">Line arrears</th>
+                  <th className="pb-2 pr-4">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPayments.map((p) => (
+                  <tr key={p.id} className="border-t">
+                    <td className="py-2 pr-4">{fmt(p.dueDate)}</td>
+                    <td className="py-2 pr-4">{money(p.amountDue)}</td>
+                    <td className="py-2 pr-4">{money(p.amountPaid)}</td>
+                    <td className="py-2 pr-4">
+                      {getPaymentStatus(
+                        p.amountDue,
+                        p.amountPaid,
+                        p.dueDate,
+                        asOf
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {money(p.amountDue - p.amountPaid)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <a
+                        href={`/payments/${p.id}/edit`}
+                        className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+                      >
+                        Edit
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-slate-500">No payments yet.</p>
+          )}
+        </div>
 
-        <details style={{ marginTop: 12 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 800 }}>
+        <details className="mt-4">
+          <summary className="cursor-pointer rounded-xl border px-4 py-2 text-sm font-medium">
             + Add payment
           </summary>
 
-          <form
-            action={addPayment}
-            style={{ marginTop: 10, display: "grid", gap: 10, maxWidth: 720 }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <label>
-                Due date
-                <input type="date" name="dueDate" style={{ width: "100%" }} />
-              </label>
-              <label>
+          <form action={addPayment} className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Due date</span>
+              <input
+                type="date"
+                name="dueDate"
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </label>
+
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">
                 Paid date (optional)
-                <input type="date" name="paidDate" style={{ width: "100%" }} />
-              </label>
-            </div>
+              </span>
+              <input
+                type="date"
+                name="paidDate"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <label>
-                Amount due (£)
-                <input
-                  type="number"
-                  name="amountDue"
-                  step={0.01}
-                  min={0}
-                  defaultValue={(tenancy.rentMonthly / 100).toFixed(2)}
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Amount paid (£)
-                <input
-                  type="number"
-                  name="amountPaid"
-                  step={0.01}
-                  min={0}
-                  defaultValue={0}
-                  style={{ width: "100%" }}
-                />
-              </label>
-            </div>
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Amount due (£)</span>
+              <input
+                type="number"
+                step="0.01"
+                name="amountDue"
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </label>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <label>
-                Method
-                <input
-                  name="method"
-                  placeholder="Bank transfer"
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Notes
-                <input name="notes" style={{ width: "100%" }} />
-              </label>
-            </div>
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Amount paid (£)</span>
+              <input
+                type="number"
+                step="0.01"
+                name="amountPaid"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
 
-            <button type="submit">Add payment</button>
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Method</span>
+              <input
+                type="text"
+                name="method"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
+
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Notes</span>
+              <input
+                type="text"
+                name="notes"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
+
+            <div className="md:col-span-2">
+              <button className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white">
+                Add payment
+              </button>
+            </div>
           </form>
         </details>
       </section>
 
-      <section
-        style={{ border: "1px solid #eee", borderRadius: 8, padding: 12 }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
-            Recent notices
-          </h2>
-
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Recent notices</h2>
           <a
-            href={`/tenancies/${id}/notices`}
-            className="btn btn-secondary btn-sm"
+            href="/notices"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
           >
             View full notice history
           </a>
         </div>
 
-        <table
-          cellPadding={10}
-          style={{ borderCollapse: "collapse", width: "100%", marginTop: 8 }}
-        >
-          <thead>
-            <tr>
-              <th align="left">Type</th>
-              <th align="left">Date served</th>
-              <th align="left">Method</th>
-              <th align="left">Notes</th>
-              <th align="left">Action</th>
-            </tr>
-          </thead>
+        <div className="mt-4 overflow-x-auto">
+          {recentNotices.length ? (
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">Date served</th>
+                  <th className="pb-2 pr-4">Method</th>
+                  <th className="pb-2 pr-4">Notes</th>
+                  <th className="pb-2 pr-4">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentNotices.map((n) => (
+                  <tr key={n.id} className="border-t">
+                    <td className="py-2 pr-4">{n.type}</td>
+                    <td className="py-2 pr-4">{fmt(n.dateServed)}</td>
+                    <td className="py-2 pr-4">{n.method}</td>
+                    <td className="py-2 pr-4">{n.notes ?? ""}</td>
+                    <td className="py-2 pr-4">
+                      <a
+                        href={`/notices/${n.id}/edit`}
+                        className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+                      >
+                        Edit
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-slate-500">No notices logged.</p>
+          )}
+        </div>
 
-          <tbody>
-            {recentNotices.map((n) => (
-              <tr key={n.id} style={{ borderTop: "1px solid #eee" }}>
-                <td>{n.type}</td>
-                <td>{fmt(n.dateServed)}</td>
-                <td>{n.method}</td>
-                <td>{n.notes ?? ""}</td>
-                <td>
-                  <a
-                    href={`/notices/${n.id}/edit`}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    Edit
-                  </a>
-                </td>
-              </tr>
-            ))}
-            {!recentNotices.length && (
-              <tr>
-                <td colSpan={5} style={{ opacity: 0.7 }}>
-                  No notices logged.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-
-        <details style={{ marginTop: 12 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 800 }}>
+        <details className="mt-4">
+          <summary className="cursor-pointer rounded-xl border px-4 py-2 text-sm font-medium">
             + Add notice
           </summary>
 
-          <form
-            action={addNotice}
-            style={{ marginTop: 10, display: "grid", gap: 10, maxWidth: 720 }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <label>
-                Type
-                <select
-                  name="type"
-                  defaultValue="OTHER"
-                  style={{ width: "100%" }}
-                >
-                  <option value="SECTION_8">Section 8</option>
-                  <option value="SECTION_21">Section 21</option>
-                  <option value="RENT_INCREASE">Rent increase</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </label>
-              <label>
-                Date served
-                <input
-                  type="date"
-                  name="dateServed"
-                  style={{ width: "100%" }}
-                />
-              </label>
-            </div>
+          <form action={addNotice} className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Type</span>
+              <select name="type" className="w-full rounded-xl border px-3 py-2">
+                <option value="SECTION_8">Section 8</option>
+                <option value="SECTION_21">Section 21</option>
+                <option value="RENT_INCREASE">Rent increase</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </label>
 
-            <label>
-              Method
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Date served</span>
+              <input
+                type="date"
+                name="dateServed"
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </label>
+
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Method</span>
               <select
                 name="method"
-                defaultValue="OTHER"
-                style={{ width: "100%" }}
+                className="w-full rounded-xl border px-3 py-2"
               >
                 <option value="EMAIL">Email</option>
                 <option value="POST">Post</option>
@@ -961,129 +1019,124 @@ export default async function TenancyDetailPage({
               </select>
             </label>
 
-            <label>
-              Notes
-              <input name="notes" style={{ width: "100%" }} />
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Notes</span>
+              <input
+                type="text"
+                name="notes"
+                className="w-full rounded-xl border px-3 py-2"
+              />
             </label>
 
-            <button type="submit">Add notice</button>
+            <div className="md:col-span-2">
+              <button className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white">
+                Add notice
+              </button>
+            </div>
           </form>
         </details>
       </section>
 
-      <section
-        style={{ border: "1px solid #eee", borderRadius: 8, padding: 12 }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
-            Recent contacts
-          </h2>
-
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Recent contacts</h2>
           <a
             href={`/tenancies/${id}/contacts`}
-            className="btn btn-secondary btn-sm"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
           >
             View full contact timeline
           </a>
         </div>
 
-        <table
-          cellPadding={10}
-          style={{ borderCollapse: "collapse", width: "100%", marginTop: 8 }}
-        >
-          <thead>
-            <tr>
-              <th align="left">Date</th>
-              <th align="left">Type</th>
-              <th align="left">Subject</th>
-              <th align="left">Next follow-up</th>
-              <th align="left">Notes</th>
-            </tr>
-          </thead>
+        <div className="mt-4 overflow-x-auto">
+          {recentContacts.length ? (
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-4">Date</th>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">Subject</th>
+                  <th className="pb-2 pr-4">Next follow-up</th>
+                  <th className="pb-2 pr-4">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentContacts.map((c) => (
+                  <tr key={c.id} className="border-t">
+                    <td className="py-2 pr-4">{fmt(c.date)}</td>
+                    <td className="py-2 pr-4">{c.type}</td>
+                    <td className="py-2 pr-4">{c.subject ?? ""}</td>
+                    <td className="py-2 pr-4">{fmt(c.nextFollowUp)}</td>
+                    <td className="py-2 pr-4">{c.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-slate-500">No contact entries yet.</p>
+          )}
+        </div>
 
-          <tbody>
-            {recentContacts.map((c) => (
-              <tr key={c.id} style={{ borderTop: "1px solid #eee" }}>
-                <td>{fmt(c.date)}</td>
-                <td>{c.type}</td>
-                <td>{c.subject ?? ""}</td>
-                <td>{fmt(c.nextFollowUp)}</td>
-                <td>{c.notes}</td>
-              </tr>
-            ))}
-            {!recentContacts.length && (
-              <tr>
-                <td colSpan={5} style={{ opacity: 0.7 }}>
-                  No contact entries yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-
-        <details style={{ marginTop: 12 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 800 }}>
+        <details className="mt-4">
+          <summary className="cursor-pointer rounded-xl border px-4 py-2 text-sm font-medium">
             + Add contact log
           </summary>
 
-          <form
-            action={addContact}
-            style={{ marginTop: 10, display: "grid", gap: 10, maxWidth: 720 }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <label>
-                Date
-                <input type="date" name="date" style={{ width: "100%" }} />
-              </label>
-              <label>
-                Type
-                <select
-                  name="type"
-                  defaultValue="NOTE"
-                  style={{ width: "100%" }}
-                >
-                  <option value="CALL">Call</option>
-                  <option value="EMAIL">Email</option>
-                  <option value="SMS">SMS</option>
-                  <option value="VISIT">Visit</option>
-                  <option value="NOTE">Note</option>
-                </select>
-              </label>
-            </div>
-
-            <label>
-              Subject
-              <input name="subject" style={{ width: "100%" }} />
-            </label>
-            <label>
-              Notes
-              <input name="notes" style={{ width: "100%" }} />
-            </label>
-
-            <label>
-              Next follow-up
+          <form action={addContact} className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Date</span>
               <input
                 type="date"
-                name="nextFollowUp"
-                style={{ width: "100%" }}
+                name="date"
+                className="w-full rounded-xl border px-3 py-2"
+                required
               />
             </label>
 
-            <button type="submit">Add contact</button>
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Type</span>
+              <select name="type" className="w-full rounded-xl border px-3 py-2">
+                <option value="CALL">Call</option>
+                <option value="EMAIL">Email</option>
+                <option value="SMS">SMS</option>
+                <option value="VISIT">Visit</option>
+                <option value="NOTE">Note</option>
+              </select>
+            </label>
+
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Subject</span>
+              <input
+                type="text"
+                name="subject"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
+
+            <label className="text-sm font-medium">
+              <span className="mb-1 block text-slate-700">Notes</span>
+              <input
+                type="text"
+                name="notes"
+                className="w-full rounded-xl border px-3 py-2"
+                required
+              />
+            </label>
+
+            <label className="text-sm font-medium md:col-span-2">
+              <span className="mb-1 block text-slate-700">Next follow-up</span>
+              <input
+                type="date"
+                name="nextFollowUp"
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
+
+            <div className="md:col-span-2">
+              <button className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white">
+                Add contact
+              </button>
+            </div>
           </form>
         </details>
       </section>

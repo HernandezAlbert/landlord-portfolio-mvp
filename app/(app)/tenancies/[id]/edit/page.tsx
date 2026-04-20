@@ -9,11 +9,18 @@ function fmt(d: Date | null) {
 
 export default async function EditTenancyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireSessionUser();
   const { id } = await params;
+  const resolvedSearchParams = (await searchParams) || {};
+  const error =
+    typeof resolvedSearchParams.error === "string"
+      ? decodeURIComponent(resolvedSearchParams.error)
+      : "";
 
   const tenancy = await prisma.tenancy.findFirst({
     where: {
@@ -26,6 +33,11 @@ export default async function EditTenancyPage({
     },
     include: {
       property: true,
+      tenants: {
+        include: {
+          tenant: true,
+        },
+      },
     },
   });
 
@@ -36,7 +48,7 @@ export default async function EditTenancyPage({
 
     const currentUser = await requireSessionUser();
 
-    const owned = await prisma.tenancy.findFirst({
+    const existingTenancy = await prisma.tenancy.findFirst({
       where: {
         id,
         deletedAt: null,
@@ -45,42 +57,133 @@ export default async function EditTenancyPage({
           deletedAt: null,
         },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        propertyId: true,
+        startDate: true,
+        property: {
+          select: {
+            name: true,
+          },
+        },
+        tenants: {
+          select: {
+            tenantId: true,
+            tenant: {
+              select: {
+                fullName: true,
+              },
+            },
+          },
+        },
+      },
     });
 
-    if (!owned) redirect("/tenancies");
+    if (!existingTenancy) redirect("/tenancies");
 
     const rentMonthly = Math.round(
       Number(formData.get("rentMonthly") ?? 0) * 100
     );
-
-    const rentDueDay = Number(formData.get("rentDueDay") ?? 1);
-
+    const rentDueDayRaw = Number(formData.get("rentDueDay") ?? 1);
+    const rentDueDay = Math.min(28, Math.max(1, rentDueDayRaw || 1));
     const startDateRaw = String(formData.get("startDate") ?? "");
     const endDateRaw = String(formData.get("endDate") ?? "");
+    const isActive = String(formData.get("isActive") ?? "true") === "true";
 
-    const existingTenancy = await prisma.tenancy.findFirst({
+    if (rentMonthly <= 0) {
+      redirect(
+        `/tenancies/${id}/edit?error=${encodeURIComponent(
+          "Monthly rent must be greater than zero."
+        )}`
+      );
+    }
+
+    const startDate = startDateRaw
+      ? new Date(startDateRaw)
+      : existingTenancy.startDate;
+    const endDate = endDateRaw ? new Date(endDateRaw) : null;
+
+    if (isActive) {
+      const now = new Date();
+      const tenantIds = existingTenancy.tenants.map((tt) => tt.tenantId);
+
+      const conflictingPropertyTenancy = await prisma.tenancy.findFirst({
         where: {
-          id,
+          id: { not: id },
+          propertyId: existingTenancy.propertyId,
           deletedAt: null,
+          isActive: true,
+          OR: [{ endDate: null }, { endDate: { gte: now } }],
           property: {
             userId: currentUser.id,
             deletedAt: null,
           },
         },
-        select: { startDate: true },
+        select: { id: true },
       });
 
-      if (!existingTenancy) redirect("/tenancies");
+      if (conflictingPropertyTenancy) {
+        redirect(
+          `/tenancies/${id}/edit?error=${encodeURIComponent(
+            `${existingTenancy.property.name} already has another active tenancy. End that tenancy first before saving this one as active.`
+          )}`
+        );
+      }
 
-    const startDate = startDateRaw
-      ? new Date(startDateRaw)
-      : existingTenancy.startDate;
-      
-    const endDate = endDateRaw ? new Date(endDateRaw) : null;
+      if (tenantIds.length > 0) {
+        const conflictingTenantTenancy = await prisma.tenancy.findFirst({
+          where: {
+            id: { not: id },
+            deletedAt: null,
+            isActive: true,
+            OR: [{ endDate: null }, { endDate: { gte: now } }],
+            property: {
+              userId: currentUser.id,
+              deletedAt: null,
+            },
+            tenants: {
+              some: {
+                tenantId: { in: tenantIds },
+              },
+            },
+          },
+          include: {
+            property: {
+              select: {
+                name: true,
+              },
+            },
+            tenants: {
+              include: {
+                tenant: {
+                  select: {
+                    fullName: true,
+                  },
+                },
+              },
+            },
+          },
+        });
 
-    const isActive =
-      String(formData.get("isActive") ?? "true") === "true";
+        if (conflictingTenantTenancy) {
+          const conflictingNames = conflictingTenantTenancy.tenants
+            .filter((tt) => tenantIds.includes(tt.tenantId))
+            .map((tt) => tt.tenant.fullName)
+            .join(", ");
+
+          const propertyName =
+            conflictingTenantTenancy.property?.name || "another property";
+
+          redirect(
+            `/tenancies/${id}/edit?error=${encodeURIComponent(
+              `${
+                conflictingNames || "One or more tenants"
+              } are already on another active tenancy at ${propertyName}. End that tenancy first before saving this one as active.`
+            )}`
+          );
+        }
+      }
+    }
 
     await prisma.tenancy.updateMany({
       where: {
@@ -103,124 +206,120 @@ export default async function EditTenancyPage({
   }
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>
-            Edit tenancy
-          </h1>
-          <div style={{ opacity: 0.75 }}>
-            {tenancy.property.name}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <Link
-            href={`/tenancies/${id}`}
-            className="btn btn-secondary btn-sm"
-          >
-            Back
-          </Link>
-        </div>
+    <div className="max-w-xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Edit tenancy</h1>
+        <p className="text-sm text-slate-500">{tenancy.property.name}</p>
       </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <form
         action={updateTenancy}
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 8,
-          padding: 12,
-          display: "grid",
-          gap: 12,
-          maxWidth: 720,
-        }}
+        className="space-y-4 rounded-2xl border bg-white p-6 shadow-sm"
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-          }}
-        >
-          <label>
+        <div>
+          <label
+            htmlFor="rentMonthly"
+            className="mb-1 block text-sm font-medium text-slate-700"
+          >
             Rent monthly (£)
-            <input
-              type="number"
-              name="rentMonthly"
-              step={0.01}
-              min={0}
-              defaultValue={(tenancy.rentMonthly / 100).toFixed(2)}
-              style={{ width: "100%" }}
-            />
           </label>
+          <input
+            id="rentMonthly"
+            name="rentMonthly"
+            type="number"
+            step="0.01"
+            min="0"
+            className="w-full rounded-xl border px-3 py-2"
+            defaultValue={(tenancy.rentMonthly / 100).toFixed(2)}
+            required
+          />
+        </div>
 
-          <label>
+        <div>
+          <label
+            htmlFor="rentDueDay"
+            className="mb-1 block text-sm font-medium text-slate-700"
+          >
             Rent due day (1–28)
-            <input
-              type="number"
-              name="rentDueDay"
-              min={1}
-              max={28}
-              defaultValue={tenancy.rentDueDay}
-              style={{ width: "100%" }}
-            />
           </label>
+          <input
+            id="rentDueDay"
+            name="rentDueDay"
+            type="number"
+            min="1"
+            max="28"
+            className="w-full rounded-xl border px-3 py-2"
+            defaultValue={tenancy.rentDueDay}
+            required
+          />
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-          }}
-        >
-          <label>
+        <div>
+          <label
+            htmlFor="startDate"
+            className="mb-1 block text-sm font-medium text-slate-700"
+          >
             Start date
-            <input
-              type="date"
-              name="startDate"
-              defaultValue={fmt(tenancy.startDate)}
-              style={{ width: "100%" }}
-            />
           </label>
-
-          <label>
-            End date (optional)
-            <input
-              type="date"
-              name="endDate"
-              defaultValue={fmt(tenancy.endDate)}
-              style={{ width: "100%" }}
-            />
-          </label>
+          <input
+            id="startDate"
+            name="startDate"
+            type="date"
+            className="w-full rounded-xl border px-3 py-2"
+            defaultValue={fmt(tenancy.startDate)}
+          />
         </div>
 
-        <label>
-          Active?
+        <div>
+          <label
+            htmlFor="endDate"
+            className="mb-1 block text-sm font-medium text-slate-700"
+          >
+            End date (optional)
+          </label>
+          <input
+            id="endDate"
+            name="endDate"
+            type="date"
+            className="w-full rounded-xl border px-3 py-2"
+            defaultValue={fmt(tenancy.endDate)}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="isActive"
+            className="mb-1 block text-sm font-medium text-slate-700"
+          >
+            Active?
+          </label>
           <select
+            id="isActive"
             name="isActive"
-            defaultValue={String(tenancy.isActive)}
-            style={{ width: "100%" }}
+            className="w-full rounded-xl border px-3 py-2"
+            defaultValue={tenancy.isActive ? "true" : "false"}
           >
             <option value="true">Yes</option>
             <option value="false">No</option>
           </select>
-        </label>
+        </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="submit" className="btn btn-primary btn-sm">
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white"
+          >
             Save
           </button>
-
           <Link
             href={`/tenancies/${id}`}
-            className="btn btn-secondary btn-sm"
+            className="rounded-xl border px-4 py-2 text-sm font-medium"
           >
             Cancel
           </Link>
