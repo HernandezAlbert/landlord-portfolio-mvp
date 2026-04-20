@@ -9,16 +9,27 @@ function makeDueDate(year: number, monthZero: number, dueDay: number) {
 }
 
 function addMonthsUtc(d: Date, months: number) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate()));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate())
+  );
 }
 
-export function getPaymentStatus(amountDue: number, amountPaid: number, dueDate: Date, asOf = new Date()) {
+export function getPaymentStatus(
+  amountDue: number,
+  amountPaid: number,
+  dueDate: Date,
+  asOf = new Date()
+) {
   if (amountPaid >= amountDue) return "PAID";
   if (amountPaid > 0) return dueDate <= asOf ? "PART PAID / LATE" : "PART PAID";
   return dueDate <= asOf ? "UNPAID / LATE" : "UPCOMING";
 }
 
-export async function ensureRentScheduleForTenancy(userId: string, tenancyId: string, asOf = new Date()) {
+export async function ensureRentScheduleForTenancy(
+  userId: string,
+  tenancyId: string,
+  asOf = new Date()
+) {
   const tenancy = await prisma.tenancy.findFirst({
     where: {
       id: tenancyId,
@@ -44,19 +55,33 @@ export async function ensureRentScheduleForTenancy(userId: string, tenancyId: st
   const monthsAhead = Math.min(Math.max(tenancy.rentGenerateMonthsAhead || 3, 1), 24);
   const dueDay = Math.min(Math.max(tenancy.rentDueDay, 1), 28);
   const today = startOfUtcDay(asOf);
-  const horizon = makeDueDate(today.getUTCFullYear(), today.getUTCMonth() + monthsAhead, dueDay);
+  const tenancyStart = startOfUtcDay(tenancy.startDate);
 
-  const base = tenancy.payments[0]?.dueDate
+  const horizon = makeDueDate(
+    today.getUTCFullYear(),
+    today.getUTCMonth() + monthsAhead,
+    dueDay
+  );
+
+  let base = tenancy.payments[0]?.dueDate
     ? addMonthsUtc(startOfUtcDay(tenancy.payments[0].dueDate), 1)
-    : makeDueDate(
-        tenancy.startDate.getUTCFullYear(),
-        tenancy.startDate.getUTCMonth(),
-        dueDay,
-      );
+    : makeDueDate(tenancyStart.getUTCFullYear(), tenancyStart.getUTCMonth(), dueDay);
 
-  let cursor = base < makeDueDate(today.getUTCFullYear(), today.getUTCMonth(), dueDay)
-    ? makeDueDate(today.getUTCFullYear(), today.getUTCMonth(), dueDay)
-    : base;
+  while (base < tenancyStart) {
+    base = addMonthsUtc(base, 1);
+  }
+
+  const currentMonthDue = makeDueDate(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    dueDay
+  );
+
+  let cursor = base < currentMonthDue ? currentMonthDue : base;
+
+  while (cursor < tenancyStart) {
+    cursor = addMonthsUtc(cursor, 1);
+  }
 
   const dueDates: Date[] = [];
   while (cursor <= horizon) {
@@ -69,6 +94,7 @@ export async function ensureRentScheduleForTenancy(userId: string, tenancyId: st
       where: { id: tenancy.id },
       data: { lastRentGeneratedOn: new Date() },
     });
+
     return { created: 0, tenancy };
   }
 
@@ -81,7 +107,10 @@ export async function ensureRentScheduleForTenancy(userId: string, tenancyId: st
     select: { dueDate: true },
   });
 
-  const existingKeys = new Set(existing.map((x) => x.dueDate.toISOString().slice(0, 10)));
+  const existingKeys = new Set(
+    existing.map((x) => x.dueDate.toISOString().slice(0, 10))
+  );
+
   const rows = dueDates
     .filter((d) => !existingKeys.has(d.toISOString().slice(0, 10)))
     .map((d) => ({
@@ -103,7 +132,10 @@ export async function ensureRentScheduleForTenancy(userId: string, tenancyId: st
   return { created: rows.length, tenancy };
 }
 
-export async function ensureRentSchedulesForAllActiveTenancies(userId: string, asOf = new Date()) {
+export async function ensureRentSchedulesForAllActiveTenancies(
+  userId: string,
+  asOf = new Date()
+) {
   const ids = await prisma.tenancy.findMany({
     where: {
       isActive: true,
@@ -122,5 +154,6 @@ export async function ensureRentSchedulesForAllActiveTenancies(userId: string, a
     const res = await ensureRentScheduleForTenancy(userId, t.id, asOf);
     created += res.created;
   }
+
   return { tenanciesProcessed: ids.length, paymentsCreated: created };
 }
