@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { signOut } from "@/lib/auth";
 
-export async function POST() {
+export async function POST(request: Request) {
   await signOut();
 
-  return NextResponse.redirect(new URL("/login", process.env.APP_BASE_URL || "http://localhost:3000"));
+  const loginUrl = new URL("/login", request.url);
+
+  return NextResponse.redirect(loginUrl, 303);
 }
