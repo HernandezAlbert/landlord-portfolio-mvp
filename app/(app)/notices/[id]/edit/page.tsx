@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
 
@@ -26,7 +27,13 @@ export default async function EditNoticePage({
         },
       },
     },
-    include: { tenancy: { include: { property: true } } },
+    include: {
+      tenancy: {
+        include: {
+          property: true,
+        },
+      },
+    },
   });
 
   if (!noticeResult) redirect("/notices");
@@ -71,7 +78,11 @@ export default async function EditNoticePage({
       },
     });
 
-    redirect(`/tenancies/${notice.tenancyId}`);
+    revalidatePath("/notices");
+    revalidatePath(`/tenancies/${notice.tenancyId}`);
+    revalidatePath(`/notices/${id}/edit`);
+
+    redirect("/notices");
   }
 
   async function deleteNotice() {
@@ -100,33 +111,39 @@ export default async function EditNoticePage({
       data: { deletedAt: new Date() },
     });
 
-    redirect(`/tenancies/${notice.tenancyId}`);
+    revalidatePath("/notices");
+    revalidatePath(`/tenancies/${notice.tenancyId}`);
+    revalidatePath(`/notices/${id}/edit`);
+
+    redirect("/notices");
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Edit notice</h1>
-        <a href={`/tenancies/${notice.tenancyId}`} className="text-sm underline">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Edit notice</h1>
+          <p className="text-sm text-slate-500">
+            {notice.tenancy.property.name} — tenancy start{" "}
+            {fmt(notice.tenancy.startDate)}
+          </p>
+        </div>
+        <a href="/notices" className="rounded-xl border px-4 py-2 text-sm font-medium">
           Back
         </a>
       </div>
 
       <form
         action={updateNotice}
-        className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm"
+        className="space-y-5 rounded-2xl border bg-white p-6 shadow-sm"
       >
-        <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-600">
-          {notice.tenancy.property.name} — tenancy start {fmt(notice.tenancy.startDate)}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Type</span>
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Type</span>
             <select
               name="type"
               defaultValue={notice.type}
-              className="rounded-xl border px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2"
             >
               <option value="SECTION_8">Section 8</option>
               <option value="SECTION_21">Section 21</option>
@@ -135,23 +152,23 @@ export default async function EditNoticePage({
             </select>
           </label>
 
-          <label className="grid gap-1 text-sm">
-            <span>Date served</span>
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Date served</span>
             <input
               type="date"
               name="dateServed"
               defaultValue={fmt(notice.dateServed)}
-              className="rounded-xl border px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2"
               required
             />
           </label>
 
-          <label className="grid gap-1 text-sm md:col-span-2">
-            <span>Method</span>
+          <label className="text-sm font-medium">
+            <span className="mb-1 block text-slate-700">Method</span>
             <select
               name="method"
               defaultValue={notice.method}
-              className="rounded-xl border px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2"
             >
               <option value="POST">Post</option>
               <option value="EMAIL">Email</option>
@@ -161,12 +178,13 @@ export default async function EditNoticePage({
           </label>
         </div>
 
-        <label className="grid gap-1 text-sm">
-          <span>Notes</span>
+        <label className="block text-sm font-medium">
+          <span className="mb-1 block text-slate-700">Notes</span>
           <textarea
             name="notes"
             defaultValue={notice.notes ?? ""}
-            className="min-h-28 rounded-xl border px-3 py-2"
+            rows={5}
+            className="w-full rounded-xl border px-3 py-2"
           />
         </label>
 
@@ -177,11 +195,7 @@ export default async function EditNoticePage({
           >
             Save
           </button>
-
-          <a
-            href={`/tenancies/${notice.tenancyId}`}
-            className="rounded-xl border px-4 py-2 text-sm font-medium"
-          >
+          <a href="/notices" className="rounded-xl border px-4 py-2 text-sm font-medium">
             Cancel
           </a>
         </div>
@@ -194,13 +208,9 @@ export default async function EditNoticePage({
             title="Delete notice?"
             description="This will hide the notice from active lists."
             confirmText="Delete notice"
+            className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700"
           >
-            <button
-              type="submit"
-              className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700"
-            >
-              Delete notice
-            </button>
+            Delete notice
           </ConfirmSubmit>
         </form>
       </div>

@@ -14,12 +14,14 @@ const baseItems = [
   ["/finance", "Finance"],
   ["/finance/reporting", "Reporting"],
   ["/actions", "Weekly Actions"],
-  ["/automation", "Automation"],
   ["/notices", "Notices"],
   ["/settings", "Settings"],
 ] as const;
 
-const adminItems = [["/admin/support", "Admin Support"]] as const;
+const adminItems = [
+  ["/automation", "Automation"],
+  ["/admin/support", "Admin Support"],
+] as const;
 
 type AppSidebarProps = {
   email: string;
@@ -33,7 +35,6 @@ export default function AppSidebar({ email, role }: AppSidebarProps) {
   return (
     <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-0 flex-col p-4">
-        {/* Header */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl shadow-slate-950/30">
           <div className="text-lg font-black tracking-tight">
             Landlord Portfolio
@@ -44,7 +45,6 @@ export default function AppSidebar({ email, role }: AppSidebarProps) {
           </div>
         </div>
 
-        {/* Scrollable nav */}
         <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
           <nav className="grid gap-2">
             {items.map(([href, label]) => {
@@ -52,8 +52,7 @@ export default function AppSidebar({ email, role }: AppSidebarProps) {
                 href === "/finance"
                   ? pathname === href
                   : pathname === href ||
-                    (href !== "/dashboard" &&
-                      pathname.startsWith(`${href}/`));
+                    (href !== "/dashboard" && pathname.startsWith(`${href}/`));
 
               return (
                 <Link
@@ -72,7 +71,6 @@ export default function AppSidebar({ email, role }: AppSidebarProps) {
           </nav>
         </div>
 
-        {/* Logout (always visible at bottom) */}
         <form action="/api/auth/logout" method="post" className="pt-4">
           <button
             type="submit"
