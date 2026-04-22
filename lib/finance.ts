@@ -106,7 +106,7 @@ export async function getPortfolioFinanceSummary(userId: string, asOf = new Date
     }),
   ]);
 
-  const monthlyContractedRent = activeTenancies.reduce((sum, t) => sum + t.rentMonthly, 0);
+const monthlyContractedRent = activeTenancies.reduce((sum, t) => sum + t.rentMonthly, 0);
   const filteredOverduePayments = overduePayments.filter((payment) => payment.amountPaid < payment.amountDue);
   const scheduledThisMonth = dueThisMonthAgg._sum.amountDue ?? 0;
   const paidAgainstDueThisMonth = dueThisMonthAgg._sum.amountPaid ?? 0;
@@ -156,7 +156,7 @@ export async function getPropertyFinanceRows(userId: string, asOf = new Date()) 
 
   return properties.map((property) => {
     const activeTenancies = property.tenancies.filter((t) => t.isActive);
-    const contractedRent = activeTenancies.reduce((sum, t) => sum + t.rentMonthly, 0);
+const contractedRent = activeTenancies.reduce((sum, t) => sum + t.rentMonthly, 0);
     const dueThisMonth = activeTenancies.reduce(
       (sum, t) =>
         sum +

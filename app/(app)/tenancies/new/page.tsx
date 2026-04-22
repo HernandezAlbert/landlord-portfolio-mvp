@@ -2,6 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
+function toDateInputValue(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function getMonthlyEquivalentPence(rentAmount: number, rentFrequency: "WEEKLY" | "MONTHLY") {
+  return rentFrequency === "WEEKLY" ? Math.round((rentAmount * 52) / 12) : rentAmount;
+}
+
 export default async function NewTenancyPage({
   searchParams,
 }: {
@@ -71,11 +79,10 @@ export default async function NewTenancyPage({
     const currentUser = await requireSessionUser();
     const propertyId = String(formData.get("propertyId") ?? "").trim();
     const tenantId = String(formData.get("tenantId") ?? "").trim();
-    const rentMonthly = Math.round(
-      Number(formData.get("rentMonthly") ?? 0) * 100
-    );
-    const rentDueDayRaw = Number(formData.get("rentDueDay") ?? 1);
-    const rentDueDay = Math.min(28, Math.max(1, rentDueDayRaw || 1));
+    const rentAmount = Math.round(Number(formData.get("rentAmount") ?? 0) * 100);
+    const rentFrequencyRaw = String(formData.get("rentFrequency") ?? "MONTHLY").trim();
+    const rentFrequency = rentFrequencyRaw === "WEEKLY" ? "WEEKLY" : "MONTHLY";
+    const startDateRaw = String(formData.get("startDate") ?? "").trim();
 
     const [property, tenant] = await Promise.all([
       prisma.property.findFirst({
@@ -94,7 +101,9 @@ export default async function NewTenancyPage({
       }),
     ]);
 
-    if (!property || !tenant || rentMonthly <= 0) {
+    const startDate = startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : null;
+
+    if (!property || !tenant || rentAmount <= 0 || !startDate || Number.isNaN(startDate.getTime())) {
       redirect("/tenancies/new?error=Please%20complete%20all%20fields%20correctly.");
     }
 
@@ -154,13 +163,15 @@ export default async function NewTenancyPage({
       redirect(`/tenancies/new?error=${message}`);
     }
 
-    const tenancy = await prisma.tenancy.create({
+    const tenancy = await (prisma.tenancy as any).create({
       data: {
         propertyId,
-        rentMonthly,
-        rentDueDay,
+        rentAmount,
+        rentFrequency,
+        rentMonthly: getMonthlyEquivalentPence(rentAmount, rentFrequency),
+        rentDueDay: startDate.getUTCDate(),
         isActive: true,
-        startDate: new Date(),
+        startDate,
         tenants: {
           create: [{ tenantId }],
         },
@@ -263,41 +274,62 @@ export default async function NewTenancyPage({
           ) : null}
         </div>
 
-        <div>
-          <label
-            htmlFor="rentMonthly"
-            className="mb-1 block text-sm font-medium text-slate-700"
-          >
-            Monthly rent (£)
-          </label>
-          <input
-            id="rentMonthly"
-            name="rentMonthly"
-            type="number"
-            step="0.01"
-            min="0"
-            className="w-full rounded-xl border px-3 py-2"
-            required
-          />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label
+              htmlFor="rentAmount"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Rent amount (£)
+            </label>
+            <input
+              id="rentAmount"
+              name="rentAmount"
+              type="number"
+              step="0.01"
+              min="0"
+              className="w-full rounded-xl border px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="rentFrequency"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Rent frequency
+            </label>
+            <select
+              id="rentFrequency"
+              name="rentFrequency"
+              className="w-full rounded-xl border px-3 py-2"
+              defaultValue="MONTHLY"
+            >
+              <option value="MONTHLY">Monthly</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
+          </div>
         </div>
 
         <div>
           <label
-            htmlFor="rentDueDay"
+            htmlFor="startDate"
             className="mb-1 block text-sm font-medium text-slate-700"
           >
-            Rent due day
+            Start date
           </label>
           <input
-            id="rentDueDay"
-            name="rentDueDay"
-            type="number"
-            min="1"
-            max="28"
-            defaultValue="1"
+            id="startDate"
+            name="startDate"
+            type="date"
+            defaultValue={toDateInputValue(now)}
             className="w-full rounded-xl border px-3 py-2"
             required
           />
+          <p className="mt-2 text-xs text-slate-500">
+            Future rent due dates will be generated from this start date and the selected frequency.
+          </p>
         </div>
 
         <div className="flex gap-3">

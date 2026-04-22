@@ -226,7 +226,7 @@ export async function buildLandlordDigest(userId: string, asOf = new Date()) {
   const lines = [
     `Landlord Portfolio digest (${asOf.toISOString().slice(0, 10)})`,
     "",
-    `Monthly rent: ${formatMoney(monthlyRent)}`,
+    `Monthly-equivalent rent: ${formatMoney(monthlyRent)}`,
     `Total arrears: ${formatMoney(totalArrears)}`,
     `Red items: ${redCount}`,
     "",

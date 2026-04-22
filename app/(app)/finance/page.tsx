@@ -25,7 +25,7 @@ export default async function FinancePage() {
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight">Financial dashboard</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Rent due, rent received, arrears and monthly cashflow across the portfolio.
+          Rent due, rent received, arrears and monthly-equivalent cashflow across the portfolio.
         </p>
         <div className="mt-4">
           <Link href="/finance/reporting" className="btn btn-secondary btn-sm">
@@ -36,7 +36,7 @@ export default async function FinancePage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {[
-          ["Contracted monthly rent", money(summary.monthlyContractedRent), "text-green-700"],
+          ["Contracted monthly-equivalent rent", money(summary.monthlyContractedRent), "text-green-700"],
           ["Due this month", money(summary.scheduledThisMonth), "text-slate-900"],
           [
             "Cash received this month",

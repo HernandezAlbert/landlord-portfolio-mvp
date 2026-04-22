@@ -116,13 +116,15 @@ model Tenant {
 }
 
 model Tenancy {
-  id                     String    @id @default(cuid())
+  id                     String        @id @default(cuid())
   propertyId             String
   startDate              DateTime
   endDate                DateTime?
   rentMonthly            Int
+  rentAmount             Int           @default(0)
+  rentFrequency          RentFrequency @default(MONTHLY)
   rentDueDay             Int
-  isActive               Boolean   @default(true)
+  isActive               Boolean       @default(true)
   notes                  String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
@@ -495,6 +497,11 @@ enum ExpenseCategory {
 enum UserRole {
   USER
   ADMIN
+}
+
+enum RentFrequency {
+  WEEKLY
+  MONTHLY
 }
 
 model ReportSchedule {

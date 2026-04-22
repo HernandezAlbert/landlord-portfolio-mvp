@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
+import { formatRentWithFrequency } from "@/lib/tenancy-rent";
 
 export default async function TenanciesPage() {
   const user = await requireSessionUser();
@@ -55,9 +56,7 @@ export default async function TenanciesPage() {
                   {t.tenants.map((tt) => tt.tenant.fullName).join(", ")}
                 </td>
 
-                <td className="p-3">
-                  £{((t.rentMonthly ?? 0) / 100).toFixed(2)}
-                </td>
+                <td className="p-3">{formatRentWithFrequency(t)}</td>
 
                 <td className="p-3">
                   {t.isActive ? "Active" : "Ended"}

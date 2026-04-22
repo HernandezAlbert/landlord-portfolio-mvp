@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireSessionUser } from "@/lib/auth";
 import { money as formatMoney } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
+import { formatRentWithFrequency, getMonthlyEquivalentPence } from "@/lib/tenancy-rent";
 
 function fmt(d: Date | null) {
   return d ? d.toISOString().slice(0, 10) : "";
@@ -92,7 +93,7 @@ export default async function PropertyPage({
 
   const activeTenancies = property.tenancies.filter((t) => t.isActive);
   const activeMonthlyRent = activeTenancies.reduce(
-    (sum, t) => sum + t.rentMonthly,
+    (sum, t) => sum + getMonthlyEquivalentPence(t),
     0,
   );
   const monthlyRent = property.advertisedRentMonthly ?? activeMonthlyRent;
@@ -405,7 +406,7 @@ export default async function PropertyPage({
                         {tt.tenant.fullName}
                       </td>
                       <td className="px-3 py-3 text-slate-700">
-                        {formatMoney(t.rentMonthly)}
+                        {formatRentWithFrequency(t)}
                       </td>
                       <td className="px-3 py-3 text-right">
                         <Link

@@ -5,6 +5,7 @@ import { getPaymentStatus, ensureRentScheduleForTenancy } from "@/lib/rent";
 import { redirect } from "next/navigation";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
+import { formatRentWithFrequency, getRentFrequency } from "@/lib/tenancy-rent";
 
 function money(pence: number) {
   return `£${(pence / 100).toFixed(2)}`;
@@ -65,12 +66,17 @@ export default async function TenancyDetailPage({
   if (!tenancyResult) redirect("/tenancies");
 
   const tenancy = tenancyResult;
+  const asOf = new Date();
 
   const [recentPayments, recentNotices, recentContacts, allTenants] =
     await Promise.all([
       prisma.payment.findMany({
-        where: { tenancyId: id, deletedAt: null },
-        orderBy: { dueDate: "desc" },
+        where: {
+          tenancyId: id,
+          deletedAt: null,
+          dueDate: { gte: asOf },
+        },
+        orderBy: { dueDate: "asc" },
         take: 5,
       }),
       prisma.notice.findMany({
@@ -92,7 +98,6 @@ export default async function TenancyDetailPage({
       }),
     ]);
 
-  const asOf = new Date();
   const arrears = await getTenancyArrears(user.id, tenancy.id, asOf);
   const existingTenantIds = new Set(tenancy.tenants.map((tt) => tt.tenantId));
   const availableToAdd = allTenants.filter((t) => !existingTenantIds.has(t.id));
@@ -605,7 +610,7 @@ Please arrange payment as soon as possible.`;
           <p className="text-slate-600">
             {tenancy.property.name} — Start{" "}
             {tenancy.startDate.toISOString().slice(0, 10)} — Rent{" "}
-            {money(tenancy.rentMonthly)}
+            {formatRentWithFrequency(tenancy)}
           </p>
         </div>
 
@@ -685,10 +690,9 @@ Please arrange payment as soon as possible.`;
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold">Automatic rent tracking</h2>
+            <h2 className="text-xl font-semibold">Automatic rent tracking ({getRentFrequency(tenancy).toLowerCase()})</h2>
             <p className="mt-1 text-slate-600">
-              Automatically creates missing monthly rent due rows ahead of time,
-              so arrears and payment status stay current.
+              Automatically creates missing rent due rows ahead of time based on the tenancy start date and rent frequency, so arrears and payment status stay current.
             </p>
           </div>
 
@@ -794,7 +798,7 @@ Please arrange payment as soon as possible.`;
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold">Recent payments</h2>
+          <h2 className="text-xl font-semibold">Next 5 payments</h2>
           <div className="flex gap-2">
             <a
               href={`/tenancies/${id}/payments`}
@@ -843,7 +847,7 @@ Please arrange payment as soon as possible.`;
                     </td>
                     <td className="py-2 pr-4">
                       <a
-                        href={`/payments/${p.id}/edit`}
+                        href={`/tenancies/${id}/payments#${p.id}`}
                         className="rounded-lg border px-3 py-1.5 text-sm font-medium"
                       >
                         Edit
@@ -854,7 +858,7 @@ Please arrange payment as soon as possible.`;
               </tbody>
             </table>
           ) : (
-            <p className="text-slate-500">No payments yet.</p>
+            <p className="text-slate-500">No upcoming payments.</p>
           )}
         </div>
 

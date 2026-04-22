@@ -7,6 +7,10 @@ function fmt(d: Date | null) {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
+function getMonthlyEquivalentPence(rentAmount: number, rentFrequency: "WEEKLY" | "MONTHLY") {
+  return rentFrequency === "WEEKLY" ? Math.round((rentAmount * 52) / 12) : rentAmount;
+}
+
 export default async function EditTenancyPage({
   params,
   searchParams,
@@ -81,27 +85,33 @@ export default async function EditTenancyPage({
 
     if (!existingTenancy) redirect("/tenancies");
 
-    const rentMonthly = Math.round(
-      Number(formData.get("rentMonthly") ?? 0) * 100
-    );
-    const rentDueDayRaw = Number(formData.get("rentDueDay") ?? 1);
-    const rentDueDay = Math.min(28, Math.max(1, rentDueDayRaw || 1));
+    const rentAmount = Math.round(Number(formData.get("rentAmount") ?? 0) * 100);
+    const rentFrequencyRaw = String(formData.get("rentFrequency") ?? "MONTHLY");
+    const rentFrequency = rentFrequencyRaw === "WEEKLY" ? "WEEKLY" : "MONTHLY";
     const startDateRaw = String(formData.get("startDate") ?? "");
     const endDateRaw = String(formData.get("endDate") ?? "");
     const isActive = String(formData.get("isActive") ?? "true") === "true";
 
-    if (rentMonthly <= 0) {
+    if (rentAmount <= 0) {
       redirect(
         `/tenancies/${id}/edit?error=${encodeURIComponent(
-          "Monthly rent must be greater than zero."
+          "Rent amount must be greater than zero."
         )}`
       );
     }
 
     const startDate = startDateRaw
-      ? new Date(startDateRaw)
+      ? new Date(`${startDateRaw}T00:00:00.000Z`)
       : existingTenancy.startDate;
-    const endDate = endDateRaw ? new Date(endDateRaw) : null;
+    const endDate = endDateRaw ? new Date(`${endDateRaw}T00:00:00.000Z`) : null;
+
+    if (Number.isNaN(startDate.getTime()) || (endDate && Number.isNaN(endDate.getTime()))) {
+      redirect(
+        `/tenancies/${id}/edit?error=${encodeURIComponent(
+          "Please enter valid tenancy dates."
+        )}`
+      );
+    }
 
     if (isActive) {
       const now = new Date();
@@ -185,7 +195,7 @@ export default async function EditTenancyPage({
       }
     }
 
-    await prisma.tenancy.updateMany({
+    await (prisma.tenancy as any).updateMany({
       where: {
         id,
         property: {
@@ -194,8 +204,10 @@ export default async function EditTenancyPage({
         },
       },
       data: {
-        rentMonthly,
-        rentDueDay,
+        rentAmount,
+        rentFrequency,
+        rentMonthly: getMonthlyEquivalentPence(rentAmount, rentFrequency),
+        rentDueDay: startDate.getUTCDate(),
         startDate,
         endDate,
         isActive,
@@ -222,42 +234,43 @@ export default async function EditTenancyPage({
         action={updateTenancy}
         className="space-y-4 rounded-2xl border bg-white p-6 shadow-sm"
       >
-        <div>
-          <label
-            htmlFor="rentMonthly"
-            className="mb-1 block text-sm font-medium text-slate-700"
-          >
-            Rent monthly (£)
-          </label>
-          <input
-            id="rentMonthly"
-            name="rentMonthly"
-            type="number"
-            step="0.01"
-            min="0"
-            className="w-full rounded-xl border px-3 py-2"
-            defaultValue={(tenancy.rentMonthly / 100).toFixed(2)}
-            required
-          />
-        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label
+              htmlFor="rentAmount"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Rent amount (£)
+            </label>
+            <input
+              id="rentAmount"
+              name="rentAmount"
+              type="number"
+              step="0.01"
+              min="0"
+              className="w-full rounded-xl border px-3 py-2"
+              defaultValue={((((tenancy as any).rentAmount || tenancy.rentMonthly) as number) / 100).toFixed(2)}
+              required
+            />
+          </div>
 
-        <div>
-          <label
-            htmlFor="rentDueDay"
-            className="mb-1 block text-sm font-medium text-slate-700"
-          >
-            Rent due day (1–28)
-          </label>
-          <input
-            id="rentDueDay"
-            name="rentDueDay"
-            type="number"
-            min="1"
-            max="28"
-            className="w-full rounded-xl border px-3 py-2"
-            defaultValue={tenancy.rentDueDay}
-            required
-          />
+          <div>
+            <label
+              htmlFor="rentFrequency"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Rent frequency
+            </label>
+            <select
+              id="rentFrequency"
+              name="rentFrequency"
+              className="w-full rounded-xl border px-3 py-2"
+              defaultValue={((tenancy as any).rentFrequency as string | undefined) ?? "MONTHLY"}
+            >
+              <option value="MONTHLY">Monthly</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
+          </div>
         </div>
 
         <div>
@@ -274,6 +287,9 @@ export default async function EditTenancyPage({
             className="w-full rounded-xl border px-3 py-2"
             defaultValue={fmt(tenancy.startDate)}
           />
+          <p className="mt-2 text-xs text-slate-500">
+            Future rent due dates are generated from this date and the selected frequency.
+          </p>
         </div>
 
         <div>
