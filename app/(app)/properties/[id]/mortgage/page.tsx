@@ -1,3 +1,4 @@
+import { requireSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
@@ -17,17 +18,26 @@ export default async function PropertyMortgagePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const property = await prisma.property.findUnique({
-    where: { id },
+  const property = await prisma.property.findFirst({
+    where: { id, userId: user.id, deletedAt: null },
     include: { mortgage: true },
   });
 
-  if (!property || property.deletedAt) redirect("/properties");
+  if (!property) redirect("/properties");
 
   async function saveMortgage(formData: FormData) {
     "use server";
+
+    const user = await requireSessionUser();
+    const property = await prisma.property.findFirst({
+      where: { id, userId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!property) redirect("/properties");
 
     const lender = String(formData.get("lender") ?? "").trim() || null;
     const mortgageNumber =
@@ -46,9 +56,9 @@ export default async function PropertyMortgagePage({
     };
 
     await prisma.mortgageDetail.upsert({
-      where: { propertyId: id },
+      where: { propertyId: property.id },
       create: {
-        propertyId: id,
+        propertyId: property.id,
         lender,
         mortgageNumber,
         productName,
@@ -87,7 +97,15 @@ export default async function PropertyMortgagePage({
   async function clearMortgage() {
     "use server";
 
-    await prisma.mortgageDetail.deleteMany({ where: { propertyId: id } });
+    const user = await requireSessionUser();
+    const property = await prisma.property.findFirst({
+      where: { id, userId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!property) redirect("/properties");
+
+    await prisma.mortgageDetail.deleteMany({ where: { propertyId: property.id } });
     redirect(`/properties/${id}`);
   }
 

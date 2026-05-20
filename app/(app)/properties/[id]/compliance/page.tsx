@@ -1,3 +1,4 @@
+import { requireSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
@@ -13,10 +14,11 @@ export default async function PropertyCompliancePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const property = await prisma.property.findUnique({
-    where: { id },
+  const property = await prisma.property.findFirst({
+    where: { id, userId: user.id, deletedAt: null },
     include: {
       compliance: {
         where: { deletedAt: null },
@@ -30,10 +32,18 @@ export default async function PropertyCompliancePage({
     },
   });
 
-  if (!property || property.deletedAt) redirect("/properties");
+  if (!property) redirect("/properties");
 
   async function saveCompliance(formData: FormData) {
     "use server";
+
+    const user = await requireSessionUser();
+    const property = await prisma.property.findFirst({
+      where: { id, userId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!property) redirect("/properties");
 
     for (const type of complianceTypes) {
       const lastDoneRaw = String(formData.get(`${type}_lastDone`) ?? "").trim();
@@ -41,9 +51,9 @@ export default async function PropertyCompliancePage({
       const notesRaw = String(formData.get(`${type}_notes`) ?? "").trim();
 
       await prisma.complianceItem.upsert({
-        where: { propertyId_type: { propertyId: id, type } },
+        where: { propertyId_type: { propertyId: property.id, type } },
         create: {
-          propertyId: id,
+          propertyId: property.id,
           type,
           lastDone: lastDoneRaw ? new Date(lastDoneRaw) : null,
           expiresOn: expiresOnRaw ? new Date(expiresOnRaw) : null,
@@ -72,13 +82,13 @@ export default async function PropertyCompliancePage({
     };
 
     if (inspectionId) {
-      await prisma.inspection.update({
-        where: { id: inspectionId },
+      await prisma.inspection.updateMany({
+        where: { id: inspectionId, propertyId: property.id },
         data: inspectionData,
       });
     } else {
       await prisma.inspection.create({
-        data: { propertyId: id, ...inspectionData },
+        data: { propertyId: property.id, ...inspectionData },
       });
     }
 

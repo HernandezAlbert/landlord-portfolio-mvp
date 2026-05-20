@@ -270,7 +270,7 @@ export default async function PropertyPage({
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Mortgage</h2>
             <Link
-              href={`/properties/${property.id}/edit`}
+              href={`/properties/${property.id}/mortgage`}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               Manage
@@ -301,7 +301,7 @@ export default async function PropertyPage({
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Insurance</h2>
             <Link
-              href={`/properties/${property.id}/edit`}
+              href={`/properties/${property.id}/insurance`}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               Manage
@@ -327,7 +327,7 @@ export default async function PropertyPage({
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-slate-900">Compliance</h2>
           <Link
-            href={`/properties/${property.id}/edit`}
+            href={`/properties/${property.id}/compliance`}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
           >
             Manage

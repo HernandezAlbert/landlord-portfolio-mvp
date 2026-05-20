@@ -1,3 +1,4 @@
+import { requireSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
@@ -17,17 +18,26 @@ export default async function PropertyInsurancePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireSessionUser();
   const { id } = await params;
 
-  const property = await prisma.property.findUnique({
-    where: { id },
+  const property = await prisma.property.findFirst({
+    where: { id, userId: user.id, deletedAt: null },
     include: { insurancePolicy: true },
   });
 
-  if (!property || property.deletedAt) redirect("/properties");
+  if (!property) redirect("/properties");
 
   async function saveInsurance(formData: FormData) {
     "use server";
+
+    const user = await requireSessionUser();
+    const property = await prisma.property.findFirst({
+      where: { id, userId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!property) redirect("/properties");
 
     const provider = String(formData.get("provider") ?? "").trim() || null;
     const policyNumber = String(formData.get("policyNumber") ?? "").trim() || null;
@@ -40,9 +50,9 @@ export default async function PropertyInsurancePage({
     };
 
     await prisma.insurancePolicy.upsert({
-      where: { propertyId: id },
+      where: { propertyId: property.id },
       create: {
-        propertyId: id,
+        propertyId: property.id,
         provider,
         policyNumber,
         coverType,
@@ -73,7 +83,17 @@ export default async function PropertyInsurancePage({
   async function clearInsurance() {
     "use server";
 
-    await prisma.insurancePolicy.deleteMany({ where: { propertyId: id } });
+    const user = await requireSessionUser();
+    const property = await prisma.property.findFirst({
+      where: { id, userId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!property) redirect("/properties");
+
+    await prisma.insurancePolicy.deleteMany({
+      where: { propertyId: property.id },
+    });
     redirect(`/properties/${id}`);
   }
 
