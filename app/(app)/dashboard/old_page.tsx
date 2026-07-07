@@ -2,10 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { getTotalArrears, isSection8Eligible } from "@/lib/arrears";
 import { buildWeeklyActionList } from "@/lib/actions";
 import { getSessionUser } from "@/lib/auth";
+import { formatGBPFromPence } from "@/lib/money";
 import { redirect } from "next/navigation";
 
 function money(pence: number) {
-  return `£${(pence / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }
 
 export default async function DashboardPage() {

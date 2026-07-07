@@ -5,10 +5,11 @@ import { getPaymentStatus, ensureRentScheduleForTenancy } from "@/lib/rent";
 import { redirect } from "next/navigation";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
+import { formatGBPFromPence, poundsToPence } from "@/lib/money";
 import { formatRentWithFrequency, getRentFrequency } from "@/lib/tenancy-rent";
 
 function money(pence: number) {
-  return `£${(pence / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }
 
 function fmt(d: Date | null) {
@@ -122,20 +123,20 @@ export default async function TenancyDetailPage({
     if (!owned) redirect("/tenancies");
 
     const dueDate = String(formData.get("dueDate") ?? "").trim();
-    const amountDuePounds = Number(formData.get("amountDue") ?? 0);
-    const amountPaidPounds = Number(formData.get("amountPaid") ?? 0);
+    const amountDue = poundsToPence(formData.get("amountDue"));
+    const amountPaid = poundsToPence(formData.get("amountPaid"));
     const paidDate = String(formData.get("paidDate") ?? "").trim();
     const method = String(formData.get("method") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
 
-    if (!dueDate || !amountDuePounds) redirect(`/tenancies/${id}`);
+    if (!dueDate || !amountDue) redirect(`/tenancies/${id}`);
 
     await prisma.payment.create({
       data: {
         tenancyId: id,
         dueDate: new Date(dueDate),
-        amountDue: Math.round(amountDuePounds * 100),
-        amountPaid: Math.round((amountPaidPounds || 0) * 100),
+        amountDue,
+        amountPaid,
         paidDate: paidDate ? new Date(paidDate) : null,
         method: method || null,
         notes: notes || null,

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue, poundsToPenceOrNull } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 
 function formatDate(value?: Date | null) {
@@ -43,8 +44,8 @@ export default async function EditPropertyPage({
     const postcode = String(formData.get("postcode") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
 
-    const advertisedRentMonthlyPounds = Number(
-      formData.get("advertisedRentMonthly") ?? 0,
+    const advertisedRentMonthly = poundsToPenceOrNull(
+      formData.get("advertisedRentMonthly"),
     );
 
     const propertyLicenseExpiresOnRaw = String(
@@ -68,9 +69,7 @@ export default async function EditPropertyPage({
         city,
         postcode,
         notes: notesRaw || null,
-        advertisedRentMonthly: advertisedRentMonthlyPounds
-          ? Math.round(advertisedRentMonthlyPounds * 100)
-          : null,
+        advertisedRentMonthly,
         propertyLicenseExpiresOn: propertyLicenseExpiresOnRaw
           ? new Date(propertyLicenseExpiresOnRaw)
           : null,
@@ -192,7 +191,7 @@ export default async function EditPropertyPage({
               step="0.01"
               defaultValue={
                 property.advertisedRentMonthly != null
-                  ? (property.advertisedRentMonthly / 100).toFixed(2)
+                  ? penceToPoundsInputValue(property.advertisedRentMonthly)
                   : ""
               }
               className={inputClassName}

@@ -1,16 +1,10 @@
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue, poundsToPenceOrNull } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
 function fmtDate(v: Date | null | undefined) {
   return v ? v.toISOString().slice(0, 10) : "";
-}
-
-function poundsToPence(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
 
 export default async function PropertyInsurancePage({
@@ -56,8 +50,8 @@ export default async function PropertyInsurancePage({
         provider,
         policyNumber,
         coverType,
-        annualPremium: poundsToPence(formData.get("annualPremium")),
-        monthlyPremium: poundsToPence(formData.get("monthlyPremium")),
+        annualPremium: poundsToPenceOrNull(formData.get("annualPremium")),
+        monthlyPremium: poundsToPenceOrNull(formData.get("monthlyPremium")),
         startDate: dateOrNull("startDate"),
         endDate: dateOrNull("endDate"),
         renewalDate: dateOrNull("renewalDate"),
@@ -67,8 +61,8 @@ export default async function PropertyInsurancePage({
         provider,
         policyNumber,
         coverType,
-        annualPremium: poundsToPence(formData.get("annualPremium")),
-        monthlyPremium: poundsToPence(formData.get("monthlyPremium")),
+        annualPremium: poundsToPenceOrNull(formData.get("annualPremium")),
+        monthlyPremium: poundsToPenceOrNull(formData.get("monthlyPremium")),
         startDate: dateOrNull("startDate"),
         endDate: dateOrNull("endDate"),
         renewalDate: dateOrNull("renewalDate"),
@@ -151,7 +145,7 @@ export default async function PropertyInsurancePage({
               min="0"
               defaultValue={
                 typeof policy?.annualPremium === "number"
-                  ? (policy.annualPremium / 100).toFixed(2)
+                  ? penceToPoundsInputValue(policy.annualPremium)
                   : ""
               }
               className="rounded border px-3 py-2"
@@ -167,7 +161,7 @@ export default async function PropertyInsurancePage({
               min="0"
               defaultValue={
                 typeof policy?.monthlyPremium === "number"
-                  ? (policy.monthlyPremium / 100).toFixed(2)
+                  ? penceToPoundsInputValue(policy.monthlyPremium)
                   : ""
               }
               className="rounded border px-3 py-2"

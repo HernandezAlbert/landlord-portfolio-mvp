@@ -1,5 +1,6 @@
 import { ExpenseCategory, ReportStatus, ReportType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { penceToPoundsDecimalString } from "@/lib/money";
 
 export type ReportPeriod = {
   start: Date;
@@ -373,7 +374,7 @@ export async function generateReportDataset({
       `Rent received${payment.method ? ` via ${payment.method}` : ""}`,
     notes: payment.notes?.trim() || "",
     amountPence: payment.amountPaid,
-    amount: (payment.amountPaid / 100).toFixed(2),
+    amount: penceToPoundsDecimalString(payment.amountPaid),
     tenancy: payment.tenancy.tenants.map((tt) => tt.tenant.fullName).join(", "),
     sourceId: payment.id,
     sourceType: "payment" as const,
@@ -392,7 +393,7 @@ export async function generateReportDataset({
       "Expense",
     notes: expense.notes?.trim() || "",
     amountPence: -expense.amount,
-    amount: `-${(expense.amount / 100).toFixed(2)}`,
+    amount: `-${penceToPoundsDecimalString(expense.amount)}`,
     tenancy:
       expense.tenancy?.tenants.map((tt) => tt.tenant.fullName).join(", ") || "",
     sourceId: expense.id,
@@ -421,7 +422,7 @@ export async function generateReportDataset({
       return {
         category: expenseLabels[category],
         amountPence,
-        amount: (amountPence / 100).toFixed(2),
+        amount: penceToPoundsDecimalString(amountPence),
       };
     })
     .filter((item) => item.amountPence > 0);
@@ -448,9 +449,9 @@ export async function generateReportDataset({
       incomePence: totals.income,
       expensesPence: totals.expenses,
       netPence: totals.income - totals.expenses,
-      income: (totals.income / 100).toFixed(2),
-      expenses: (totals.expenses / 100).toFixed(2),
-      net: ((totals.income - totals.expenses) / 100).toFixed(2),
+      income: penceToPoundsDecimalString(totals.income),
+      expenses: penceToPoundsDecimalString(totals.expenses),
+      net: penceToPoundsDecimalString(totals.income - totals.expenses),
     }));
 
   const warnings: string[] = [];
@@ -478,9 +479,9 @@ export async function generateReportDataset({
       totalIncomePence: totalIncome,
       totalExpensesPence: totalExpenses,
       netPence: totalIncome - totalExpenses,
-      totalIncome: (totalIncome / 100).toFixed(2),
-      totalExpenses: (totalExpenses / 100).toFixed(2),
-      net: ((totalIncome - totalExpenses) / 100).toFixed(2),
+      totalIncome: penceToPoundsDecimalString(totalIncome),
+      totalExpenses: penceToPoundsDecimalString(totalExpenses),
+      net: penceToPoundsDecimalString(totalIncome - totalExpenses),
       lineCount: rows.length,
     },
     propertyTotals,

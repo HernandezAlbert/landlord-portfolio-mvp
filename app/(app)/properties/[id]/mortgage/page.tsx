@@ -1,16 +1,10 @@
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue, poundsToPenceOrNull } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
 function fmtDate(v: Date | null | undefined) {
   return v ? v.toISOString().slice(0, 10) : "";
-}
-
-function poundsToPence(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
 
 export default async function PropertyMortgagePage({
@@ -48,7 +42,7 @@ export default async function PropertyMortgagePage({
 
     const interestRateRaw = String(formData.get("interestRate") ?? "").trim();
     const interestRate = interestRateRaw ? Number(interestRateRaw) : null;
-    const monthlyPayment = poundsToPence(formData.get("monthlyPayment"));
+    const monthlyPayment = poundsToPenceOrNull(formData.get("monthlyPayment"));
 
     const dateOrNull = (key: string) => {
       const raw = String(formData.get(key) ?? "").trim();
@@ -187,7 +181,7 @@ export default async function PropertyMortgagePage({
               min="0"
               defaultValue={
                 typeof mortgage?.monthlyPayment === "number"
-                  ? (mortgage.monthlyPayment / 100).toFixed(2)
+                  ? penceToPoundsInputValue(mortgage.monthlyPayment)
                   : ""
               }
               className="rounded border px-3 py-2"

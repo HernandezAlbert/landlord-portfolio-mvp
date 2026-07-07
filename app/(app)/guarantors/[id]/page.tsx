@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
 import { assessGuarantor } from "@/lib/guarantor-assessment";
+import { formatGBPFromPence } from "@/lib/money";
 import SubmitActionButton from "@/components/ui/submit-action-button";
 import ToastBridge from "@/components/ui/toast-bridge";
 
@@ -272,7 +273,7 @@ export default async function GuarantorDetailPage({
         <p>
           <span className="text-slate-500">Annual income:</span>{" "}
           {typeof guarantor.annualIncomePence === "number"
-            ? `£${(guarantor.annualIncomePence / 100).toLocaleString()}`
+            ? formatGBPFromPence(guarantor.annualIncomePence)
             : "-"}
         </p>
       </div>

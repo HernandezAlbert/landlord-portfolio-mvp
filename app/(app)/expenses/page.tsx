@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import { formatGBPFromPence } from "@/lib/money";
 
 export default async function ExpensesPage() {
   const user = await requireSessionUser();
@@ -79,9 +80,7 @@ export default async function ExpensesPage() {
                   </td>
                   <td className="p-3">{expense.property.name}</td>
                   <td className="p-3">{expense.category}</td>
-                  <td className="p-3">
-                    £{Number(expense.amount || 0).toFixed(2)}
-                  </td>
+                  <td className="p-3">{formatGBPFromPence(expense.amount)}</td>
                   <td className="p-3">{expense.notes || "-"}</td>
                   <td className="p-3">
                     <div className="flex gap-2">

@@ -3,6 +3,7 @@ import { ExpenseCategory } from "@prisma/client";
 import { redirect } from "next/navigation";
 
 import { requireSessionUser } from "@/lib/auth";
+import { poundsToPence } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 
 const inputClassName =
@@ -36,7 +37,7 @@ export default async function NewExpensePage() {
         propertyId,
         category: String(formData.get("category")) as ExpenseCategory,
         notes: String(formData.get("notes") || ""),
-        amount: Number(formData.get("amount") || 0),
+        amount: poundsToPence(formData.get("amount")),
         date: new Date(String(formData.get("date"))),
       },
     });
@@ -130,7 +131,7 @@ export default async function NewExpensePage() {
               name="amount"
               type="number"
               min="0"
-              step="1"
+              step="0.01"
               className={inputClassName}
               required
             />

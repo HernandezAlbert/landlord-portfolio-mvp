@@ -1,3 +1,5 @@
+import { formatGBPFromPence } from "./money";
+
 export type RentFrequency = "WEEKLY" | "MONTHLY";
 
 export type TenancyRentLike = {
@@ -33,7 +35,7 @@ export function getRentLabel(tenancy: TenancyRentLike): string {
 }
 
 export function formatMoney(pence: number): string {
-  return `£${(pence / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }
 
 export function formatRentWithFrequency(tenancy: TenancyRentLike): string {

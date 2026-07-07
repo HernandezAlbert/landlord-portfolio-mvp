@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { requireSessionUser } from "@/lib/auth";
+import { poundsToPenceOrNull } from "@/lib/money";
 
 export default function NewPropertyPage() {
   async function createProperty(formData: FormData) {
@@ -14,8 +15,8 @@ export default function NewPropertyPage() {
     const city = String(formData.get("city") ?? "").trim();
     const postcode = String(formData.get("postcode") ?? "").trim();
     const notesRaw = String(formData.get("notes") ?? "").trim();
-    const advertisedRentMonthlyPounds = Number(
-      formData.get("advertisedRentMonthly") ?? 0,
+    const advertisedRentMonthly = poundsToPenceOrNull(
+      formData.get("advertisedRentMonthly"),
     );
     const propertyLicenseExpiresOnRaw = String(
       formData.get("propertyLicenseExpiresOn") ?? "",
@@ -34,9 +35,7 @@ export default function NewPropertyPage() {
         city,
         postcode,
         notes: notesRaw || null,
-        advertisedRentMonthly: advertisedRentMonthlyPounds
-          ? Math.round(advertisedRentMonthlyPounds * 100)
-          : null,
+        advertisedRentMonthly,
         propertyLicenseExpiresOn: propertyLicenseExpiresOnRaw
           ? new Date(propertyLicenseExpiresOnRaw)
           : null,

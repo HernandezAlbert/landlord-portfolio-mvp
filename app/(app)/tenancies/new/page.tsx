@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
+import { poundsToPence } from "@/lib/money";
 import { redirect } from "next/navigation";
 
 function toDateInputValue(d: Date) {
@@ -79,7 +80,7 @@ export default async function NewTenancyPage({
     const currentUser = await requireSessionUser();
     const propertyId = String(formData.get("propertyId") ?? "").trim();
     const tenantId = String(formData.get("tenantId") ?? "").trim();
-    const rentAmount = Math.round(Number(formData.get("rentAmount") ?? 0) * 100);
+    const rentAmount = poundsToPence(formData.get("rentAmount"));
     const rentFrequencyRaw = String(formData.get("rentFrequency") ?? "MONTHLY").trim();
     const rentFrequency = rentFrequencyRaw === "WEEKLY" ? "WEEKLY" : "MONTHLY";
     const startDateRaw = String(formData.get("startDate") ?? "").trim();

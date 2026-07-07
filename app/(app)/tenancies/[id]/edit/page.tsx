@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue, poundsToPence } from "@/lib/money";
 
 function fmt(d: Date | null) {
   return d ? d.toISOString().slice(0, 10) : "";
@@ -85,7 +86,7 @@ export default async function EditTenancyPage({
 
     if (!existingTenancy) redirect("/tenancies");
 
-    const rentAmount = Math.round(Number(formData.get("rentAmount") ?? 0) * 100);
+    const rentAmount = poundsToPence(formData.get("rentAmount"));
     const rentFrequencyRaw = String(formData.get("rentFrequency") ?? "MONTHLY");
     const rentFrequency = rentFrequencyRaw === "WEEKLY" ? "WEEKLY" : "MONTHLY";
     const startDateRaw = String(formData.get("startDate") ?? "");
@@ -249,7 +250,9 @@ export default async function EditTenancyPage({
               step="0.01"
               min="0"
               className="w-full rounded-xl border px-3 py-2"
-              defaultValue={((((tenancy as any).rentAmount || tenancy.rentMonthly) as number) / 100).toFixed(2)}
+              defaultValue={penceToPoundsInputValue(
+                (((tenancy as any).rentAmount || tenancy.rentMonthly) as number),
+              )}
               required
             />
           </div>

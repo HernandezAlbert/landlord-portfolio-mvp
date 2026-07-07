@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
+import { formatGBPFromPence } from "@/lib/money";
 
 function formatMoney(value?: number | null) {
   if (typeof value !== "number") return "—";
-  return `£${(value / 100).toLocaleString("en-GB", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return formatGBPFromPence(value);
 }
 
 function formatDate(value?: Date | null) {

@@ -7,6 +7,11 @@ import {
 import { notFound, redirect } from "next/navigation";
 
 import { getSessionUser } from "@/lib/auth";
+import {
+  formatGBPFromPence,
+  penceToPoundsInputValue,
+  poundsToPence,
+} from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 
 async function getRent(
@@ -48,7 +53,7 @@ function fmtDateInput(value?: Date | null) {
 }
 
 function fmtMoney(pence?: number | null) {
-  return `£${((pence ?? 0) / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }
 
 const INCOMPATIBLE_APPLICANT_STATUSES = new Set<ApplicantStatus>([
@@ -176,11 +181,11 @@ export default async function ApplicantHoldingDepositPage({
     }
 
     const applicantId = String(formData.get("applicantId") ?? "").trim();
-    const amountPounds = Number(formData.get("amountRequested") ?? 0);
+    const amountRequestedPence = poundsToPence(formData.get("amountRequested"));
     const receivedDateRaw = String(formData.get("receivedAt") ?? "").trim();
     const deadlineRaw = String(formData.get("deadlineAt") ?? "").trim();
 
-    if (!applicantId || !amountPounds) {
+    if (!applicantId || !amountRequestedPence) {
       redirect(`/applicants/${id}/holding-deposit`);
     }
 
@@ -203,8 +208,6 @@ export default async function ApplicantHoldingDepositPage({
     if (conflictingDeposit) {
       redirect(`/applicants/${id}/holding-deposit`);
     }
-
-    const amountRequestedPence = Math.round(amountPounds * 100);
 
     const resolvedRentMonthly = await getRent(
       sessionUser.id,
@@ -460,7 +463,7 @@ export default async function ApplicantHoldingDepositPage({
             className="rounded border px-3 py-2"
             defaultValue={
               typeof holdingDeposit?.amountRequestedPence === "number"
-                ? (holdingDeposit.amountRequestedPence / 100).toFixed(2)
+                ? penceToPoundsInputValue(holdingDeposit.amountRequestedPence)
                 : ""
             }
           />

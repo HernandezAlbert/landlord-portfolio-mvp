@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatGBPFromPence } from "@/lib/money";
 
 type Guarantor = {
   id: string;
@@ -70,7 +71,7 @@ export default function GuarantorSummaryCard({
               <p className="text-sm text-slate-500">
                 Income:{" "}
                 {typeof latest.annualIncomePence === "number"
-                  ? `£${(latest.annualIncomePence / 100).toLocaleString()}`
+                  ? formatGBPFromPence(latest.annualIncomePence)
                   : "-"}
               </p>
             </div>

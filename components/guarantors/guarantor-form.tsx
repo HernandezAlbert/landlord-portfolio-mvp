@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { poundsToPenceOrNull } from "@/lib/money";
 
 type GuarantorFormValues = {
   firstName: string;
@@ -23,14 +24,6 @@ type GuarantorFormValues = {
 };
 
 type InitialData = Partial<GuarantorFormValues>;
-
-function poundsToPence(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed)) return null;
-  return Math.round(parsed * 100);
-}
 
 export default function GuarantorForm({
   applicantId,
@@ -95,7 +88,7 @@ export default function GuarantorForm({
           body: JSON.stringify({
             ...form,
             applicantId,
-            annualIncomePence: poundsToPence(form.annualIncome),
+            annualIncomePence: poundsToPenceOrNull(form.annualIncome),
             deedSignedAt: form.deedSigned ? new Date().toISOString() : null,
           }),
         }

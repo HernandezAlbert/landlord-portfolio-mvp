@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatGBPFromPence } from "@/lib/money";
 
 type SendEmailArgs = {
   to: string;
@@ -113,5 +114,5 @@ export async function sendEmailSafe(args: SendEmailArgs) {
 }
 
 export function formatMoney(pence: number) {
-  return `£${(pence / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }

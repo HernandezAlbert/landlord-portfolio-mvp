@@ -24,6 +24,7 @@ import {
 } from "@/lib/google-form-import";
 import { buildApplicantDuplicateKeys } from "@/lib/applicant-import-utils";
 import { upsertImportedApplicant } from "@/lib/applicant-import-upsert";
+import { poundsToPenceOrNull } from "@/lib/money";
 
 function Pill({
   children,
@@ -129,7 +130,7 @@ export default async function ApplicantsPage({
     const propertyIdRaw = String(formData.get("propertyId") ?? "").trim() || null;
     const employmentStatus =
       String(formData.get("employmentStatus") ?? "").trim() || null;
-    const monthlyIncomePounds = Number(formData.get("monthlyIncome") ?? 0);
+    const monthlyIncome = poundsToPenceOrNull(formData.get("monthlyIncome"));
     const requestedMoveIn = String(formData.get("requestedMoveIn") ?? "").trim();
     const adults = Math.max(1, Number(formData.get("adults") ?? 1) || 1);
     const children = Math.max(0, Number(formData.get("children") ?? 0) || 0);
@@ -171,9 +172,7 @@ export default async function ApplicantsPage({
         phone,
         propertyId,
         employmentStatus,
-        monthlyIncome: monthlyIncomePounds
-          ? Math.round(monthlyIncomePounds * 100)
-          : null,
+        monthlyIncome,
         requestedMoveIn: requestedMoveIn ? new Date(requestedMoveIn) : null,
         adults,
         children,

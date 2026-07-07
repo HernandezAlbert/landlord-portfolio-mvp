@@ -5,6 +5,7 @@ import { ExpenseCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import { penceToPoundsInputValue, poundsToPence } from "@/lib/money";
 
 export default async function EditExpensePage({
   params,
@@ -46,7 +47,7 @@ export default async function EditExpensePage({
       data: {
         category: String(formData.get("category")) as ExpenseCategory,
         notes: String(formData.get("notes") || ""),
-        amount: Number(formData.get("amount") || 0),
+        amount: poundsToPence(formData.get("amount")),
         date: new Date(String(formData.get("date"))),
       },
     });
@@ -122,7 +123,7 @@ export default async function EditExpensePage({
             type="number"
             step="0.01"
             name="amount"
-            defaultValue={Number(expense.amount || 0).toFixed(2)}
+            defaultValue={penceToPoundsInputValue(expense.amount)}
             className="w-full border rounded p-2"
             required
           />

@@ -1,4 +1,5 @@
 import type { ApplicantDecision } from "./applicants";
+import { poundsToPenceOrNull } from "@/lib/money";
 
 export type ImportedApplicantPayload = {
   externalKey: string;
@@ -97,7 +98,7 @@ function safeNumber(value: unknown): number | null {
 }
 
 function penceFromPounds(value: number | null) {
-  return value === null ? null : Math.round(value * 100);
+  return poundsToPenceOrNull(value);
 }
 
 function pick(row: Row, candidates: string[]): string | null {

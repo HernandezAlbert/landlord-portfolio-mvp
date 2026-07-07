@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatGBPFromPence } from "./money";
 
 export function startOfUtcMonth(base = new Date()) {
   return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), 1, 0, 0, 0, 0));
@@ -9,7 +10,7 @@ export function endOfUtcMonthExclusive(base = new Date()) {
 }
 
 export function money(pence: number | null | undefined) {
-  return `£${(((pence ?? 0) as number) / 100).toFixed(2)}`;
+  return formatGBPFromPence(pence);
 }
 
 export async function getPortfolioFinanceSummary(userId: string, asOf = new Date()) {

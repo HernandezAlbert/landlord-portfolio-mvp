@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ConfirmSubmit } from "@/app/(app)/components/ConfirmSubmit";
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue, poundsToPence } from "@/lib/money";
 import { formatRentWithFrequency, getRentLabel } from "@/lib/tenancy-rent";
 
 function fmt(d: Date | null | undefined) {
@@ -76,8 +77,8 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
     if (!owned) redirect("/tenancies");
 
     const dueDate = String(formData.get("dueDate") ?? "").trim();
-    const amountDue = Number(formData.get("amountDue") ?? 0);
-    const amountPaid = Number(formData.get("amountPaid") ?? 0);
+    const amountDue = poundsToPence(formData.get("amountDue"));
+    const amountPaid = poundsToPence(formData.get("amountPaid"));
     const paidDate = String(formData.get("paidDate") ?? "").trim();
     const method = String(formData.get("method") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
@@ -88,8 +89,8 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
       data: {
         tenancyId: id,
         dueDate: new Date(dueDate),
-        amountDue: Math.round(amountDue * 100),
-        amountPaid: Math.round((amountPaid || 0) * 100),
+        amountDue,
+        amountPaid,
         paidDate: paidDate ? new Date(paidDate) : null,
         method: method || null,
         notes: notes || null,
@@ -125,8 +126,8 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
     if (!ownedPayment) redirect("/tenancies");
 
     const dueDate = String(formData.get("dueDate") ?? "").trim();
-    const amountDue = Number(formData.get("amountDue") ?? 0);
-    const amountPaid = Number(formData.get("amountPaid") ?? 0);
+    const amountDue = poundsToPence(formData.get("amountDue"));
+    const amountPaid = poundsToPence(formData.get("amountPaid"));
     const paidDate = String(formData.get("paidDate") ?? "").trim();
     const method = String(formData.get("method") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
@@ -137,8 +138,8 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
       where: { id: paymentId },
       data: {
         dueDate: new Date(dueDate),
-        amountDue: Math.round(amountDue * 100),
-        amountPaid: Math.round((amountPaid || 0) * 100),
+        amountDue,
+        amountPaid,
         paidDate: paidDate ? new Date(paidDate) : null,
         method: method || null,
         notes: notes || null,
@@ -401,7 +402,7 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
                         name="amountDue"
                         type="number"
                         step="0.01"
-                        defaultValue={(payment.amountDue / 100).toFixed(2)}
+                        defaultValue={penceToPoundsInputValue(payment.amountDue)}
                         className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
                       />
                     </label>
@@ -411,7 +412,7 @@ export default async function TenancyPaymentsPage({ params }: { params: Promise<
                         name="amountPaid"
                         type="number"
                         step="0.01"
-                        defaultValue={(payment.amountPaid / 100).toFixed(2)}
+                        defaultValue={penceToPoundsInputValue(payment.amountPaid)}
                         className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
                       />
                     </label>

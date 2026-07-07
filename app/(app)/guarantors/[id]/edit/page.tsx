@@ -3,11 +3,12 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSessionUser } from "@/lib/auth";
+import { penceToPoundsInputValue } from "@/lib/money";
 import GuarantorForm from "@/components/guarantors/guarantor-form";
 
 function moneyInputValue(value?: number | null) {
   if (typeof value !== "number") return "";
-  return (value / 100).toFixed(2);
+  return penceToPoundsInputValue(value);
 }
 
 function dateInputValue(value?: Date | null) {

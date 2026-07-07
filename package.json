@@ -11,6 +11,7 @@
     "seed": "prisma db seed",
     "postinstall": "prisma generate",
     "recalc": "tsx scripts/recalculateApplicants.ts",
+    "validate:money": "tsx scripts/validate-money.ts",
     "regression:applicants": "tsx scripts/regression-applicants.ts"
   },
   "prisma": {

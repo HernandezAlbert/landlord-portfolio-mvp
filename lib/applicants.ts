@@ -1,3 +1,5 @@
+import { formatGBPFromPence } from "@/lib/money";
+
 export type ApplicantDecision =
   | "ACCEPT"
   | "ACCEPT_WITH_GUARANTOR"
@@ -29,12 +31,7 @@ export function formatMoney(value?: number | null) {
     return "—";
   }
 
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value) / 100);
+  return formatGBPFromPence(Number(value));
 }
 
 export function decisionToApplicantStatus(
