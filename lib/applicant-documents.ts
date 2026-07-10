@@ -41,6 +41,15 @@ function applicantDocumentAccessUrl(applicantId: string, documentId: string) {
   return `/api/applicants/${applicantId}/documents/${documentId}`;
 }
 
+function isMissingApplicantDocumentTableError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2021"
+  );
+}
+
 function applicantDocStorageKeyForType(type: string) {
   switch (type) {
     case "EMPLOYER_REFERENCE":
@@ -75,10 +84,15 @@ export async function getUploadedApplicantDocs(applicantId: string): Promise<Upl
   const folders = await applicantSearchFolders(applicantId);
   const docs: UploadedApplicantDoc[] = [];
 
-  const storedDocs = await prisma.applicantDocument.findMany({
-    where: { applicantId },
-    orderBy: { createdAt: "desc" },
-  });
+  let storedDocs: Awaited<ReturnType<typeof prisma.applicantDocument.findMany>> = [];
+  try {
+    storedDocs = await prisma.applicantDocument.findMany({
+      where: { applicantId },
+      orderBy: { createdAt: "desc" },
+    });
+  } catch (error) {
+    if (!isMissingApplicantDocumentTableError(error)) throw error;
+  }
 
   for (const doc of storedDocs) {
     docs.push({

@@ -7,6 +7,10 @@ function fmt(d: Date | null) {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
+function documentTypeLabel(type: string) {
+  return type.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 export default async function EditTenantPage({
   params,
 }: {
@@ -24,6 +28,34 @@ export default async function EditTenantPage({
   });
 
   if (!tenant) redirect("/tenants");
+
+  const referenceDocuments = await prisma.applicantDocument.findMany({
+    where: {
+      tenantId: tenant.id,
+      applicant: {
+        userId: user.id,
+      },
+    },
+    include: {
+      applicant: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+      tenancy: {
+        select: {
+          id: true,
+          property: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
   async function updateTenant(formData: FormData) {
     "use server";
@@ -162,6 +194,72 @@ export default async function EditTenantPage({
           </Link>
         </div>
       </form>
+
+      <section
+        style={{
+          border: "1px solid #eee",
+          borderRadius: 8,
+          padding: 12,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>
+            Referencing documents
+          </h2>
+          <div style={{ opacity: 0.75 }}>
+            Documents carried over from the applicant record.
+          </div>
+        </div>
+
+        {referenceDocuments.length ? (
+          <table style={{ width: "100%", fontSize: 14 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: 8 }}>Type</th>
+                <th style={{ textAlign: "left", padding: 8 }}>File</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Tenancy</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Uploaded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {referenceDocuments.map((doc) => (
+                <tr key={doc.id}>
+                  <td style={{ borderTop: "1px solid #eee", padding: 8 }}>
+                    {documentTypeLabel(doc.docType)}
+                  </td>
+                  <td style={{ borderTop: "1px solid #eee", padding: 8 }}>
+                    <a
+                      href={`/api/applicants/${doc.applicantId}/documents/${doc.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {doc.originalName}
+                    </a>
+                  </td>
+                  <td style={{ borderTop: "1px solid #eee", padding: 8 }}>
+                    {doc.tenancy ? (
+                      <Link href={`/tenancies/${doc.tenancy.id}`}>
+                        {doc.tenancy.property.name}
+                      </Link>
+                    ) : (
+                      ""
+                    )}
+                  </td>
+                  <td style={{ borderTop: "1px solid #eee", padding: 8 }}>
+                    {fmt(doc.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ opacity: 0.75 }}>
+            No referencing documents linked to this tenant yet.
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -8,6 +8,10 @@ import { requireSessionUser } from "@/lib/auth";
 import { formatGBPFromPence, poundsToPence } from "@/lib/money";
 import { formatRentWithFrequency, getRentFrequency } from "@/lib/tenancy-rent";
 
+function documentTypeLabel(type: string) {
+  return type.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function money(pence: number) {
   return formatGBPFromPence(pence);
 }
@@ -69,7 +73,7 @@ export default async function TenancyDetailPage({
   const tenancy = tenancyResult;
   const asOf = new Date();
 
-  const [recentPayments, recentNotices, recentContacts, allTenants] =
+  const [recentPayments, recentNotices, recentContacts, referenceDocuments, allTenants] =
     await Promise.all([
       prisma.payment.findMany({
         where: {
@@ -89,6 +93,22 @@ export default async function TenancyDetailPage({
         where: { tenancyId: id, deletedAt: null },
         orderBy: { date: "desc" },
         take: 5,
+      }),
+      prisma.applicantDocument.findMany({
+        where: {
+          tenancyId: id,
+          applicant: {
+            userId: user.id,
+          },
+        },
+        include: {
+          applicant: {
+            select: {
+              fullName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
       }),
       prisma.tenant.findMany({
         where: {
@@ -795,6 +815,53 @@ Please arrange payment as soon as possible.`;
             Create new tenant
           </a>
         </form>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Referencing documents</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Documents carried over from the applicant referencing record.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          {referenceDocuments.length ? (
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">File</th>
+                  <th className="pb-2 pr-4">Applicant</th>
+                  <th className="pb-2 pr-4">Uploaded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referenceDocuments.map((doc) => (
+                  <tr key={doc.id} className="border-t">
+                    <td className="py-2 pr-4">{documentTypeLabel(doc.docType)}</td>
+                    <td className="py-2 pr-4">
+                      <a
+                        href={`/api/applicants/${doc.applicantId}/documents/${doc.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        {doc.originalName}
+                      </a>
+                    </td>
+                    <td className="py-2 pr-4">{doc.applicant.fullName}</td>
+                    <td className="py-2 pr-4">{fmt(doc.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-slate-500">No referencing documents linked to this tenancy yet.</p>
+          )}
+        </div>
       </section>
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm">

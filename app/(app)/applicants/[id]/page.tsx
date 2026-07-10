@@ -15,6 +15,7 @@ import {
   normalizeApplicantStatus,
   referencingCompletionPercentage,
 } from "@/lib/applicants";
+import { poundsToPence } from "@/lib/money";
 import { computeReferencingScore } from "@/lib/referencing";
 import {
   APPLICANT_DOC_TYPES,
@@ -28,6 +29,21 @@ import MessageTemplatesPanel from "./MessageTemplatesPanel";
 import GuarantorSummaryCard from "@/components/guarantors/guarantor-summary-card";
 import { getDecisionWithGuarantor } from "@/lib/guarantor-decision";
 import ToastBridge from "@/components/ui/toast-bridge";
+
+function toDateInputValue(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function parseDateInput(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getMonthlyEquivalentPence(rentAmount: number, rentFrequency: "WEEKLY" | "MONTHLY") {
+  return rentFrequency === "WEEKLY" ? Math.round((rentAmount * 52) / 12) : rentAmount;
+}
 
 async function getRent(
   userId: string,
@@ -129,6 +145,10 @@ function getWorkflowGuardMessage(code?: string | null) {
   }
 }
 
+function getQueryStringValue(value: string | string[] | undefined) {
+  return typeof value === "string" ? value : "";
+}
+
 async function getWorkflowGuardCode(args: {
   requestedStatus: string;
   currentStatus?: string | null;
@@ -215,6 +235,7 @@ export default async function ApplicantDetailPage({
   const savedStatus = typeof qs.saved === "string" ? qs.saved : "";
   const guardStatus = typeof qs.guard === "string" ? qs.guard : "";
   const guardMessage = getWorkflowGuardMessage(guardStatus);
+  const convertError = getQueryStringValue(qs.convertError);
   const toastCode = typeof qs.toast === "string" ? qs.toast : "";
   const toastMessage = toastCode === "guarantor-deleted" ? "Guarantor deleted." : null;
 
@@ -378,6 +399,168 @@ export default async function ApplicantDetailPage({
     redirect(`/applicants/${freshApplicant.id}?saved=1`);
   }
 
+  async function convertApplicantToTenancy(formData: FormData) {
+    "use server";
+
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      redirect("/login");
+    }
+
+    const freshApplicant = await prisma.applicant.findFirst({
+      where: {
+        id,
+        userId: sessionUser.id,
+        deletedAt: null,
+      },
+      include: {
+        property: true,
+      },
+    });
+
+    if (!freshApplicant) notFound();
+
+    if (!freshApplicant.propertyId || !freshApplicant.property) {
+      redirect(`/applicants/${freshApplicant.id}?convertError=${encodeURIComponent("Applicant must be linked to a property before conversion.")}`);
+    }
+
+    const startDate = parseDateInput(formData.get("startDate"));
+    const rentAmount = poundsToPence(formData.get("rentAmount"));
+    const rentFrequencyRaw = String(formData.get("rentFrequency") ?? "MONTHLY").trim();
+    const rentFrequency = rentFrequencyRaw === "WEEKLY" ? "WEEKLY" : "MONTHLY";
+    const rightToRentExpiresOn = parseDateInput(formData.get("rightToRentExpiresOn"));
+
+    if (!startDate || rentAmount <= 0) {
+      redirect(`/applicants/${freshApplicant.id}?convertError=${encodeURIComponent("Enter a valid start date and rent amount before conversion.")}`);
+    }
+
+    const existingActiveTenancyForProperty = await prisma.tenancy.findFirst({
+      where: {
+        propertyId: freshApplicant.propertyId,
+        deletedAt: null,
+        isActive: true,
+        OR: [{ endDate: null }, { endDate: { gte: new Date() } }],
+        property: {
+          userId: sessionUser.id,
+          deletedAt: null,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (existingActiveTenancyForProperty) {
+      redirect(
+        `/applicants/${freshApplicant.id}?convertError=${encodeURIComponent(
+          `${freshApplicant.property.name} already has an active tenancy. End that tenancy first before converting this applicant.`,
+        )}`,
+      );
+    }
+
+    const matchingTenant = freshApplicant.email
+      ? await prisma.tenant.findFirst({
+          where: {
+            userId: sessionUser.id,
+            deletedAt: null,
+            email: freshApplicant.email,
+          },
+        })
+      : null;
+
+    const tenant =
+      matchingTenant ??
+      (await prisma.tenant.create({
+        data: {
+          userId: sessionUser.id,
+          fullName: freshApplicant.fullName,
+          email: freshApplicant.email || null,
+          phone: freshApplicant.phone || null,
+          notes: freshApplicant.notes
+            ? `Created from applicant record.\n\nApplicant notes:\n${freshApplicant.notes}`
+            : "Created from applicant record.",
+          rightToRentExpiresOn,
+        },
+      }));
+
+    const existingActiveTenancyForTenant = await prisma.tenancy.findFirst({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        OR: [{ endDate: null }, { endDate: { gte: new Date() } }],
+        property: {
+          userId: sessionUser.id,
+          deletedAt: null,
+        },
+        tenants: {
+          some: {
+            tenantId: tenant.id,
+          },
+        },
+      },
+      include: {
+        property: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (existingActiveTenancyForTenant) {
+      redirect(
+        `/applicants/${freshApplicant.id}?convertError=${encodeURIComponent(
+          `${tenant.fullName} is already on an active tenancy at ${
+            existingActiveTenancyForTenant.property?.name || "another property"
+          }. End that tenancy first before converting this applicant.`,
+        )}`,
+      );
+    }
+
+    if (matchingTenant && rightToRentExpiresOn) {
+      await prisma.tenant.update({
+        where: { id: matchingTenant.id },
+        data: { rightToRentExpiresOn },
+      });
+    }
+
+    const tenancy = await (prisma.tenancy as any).create({
+      data: {
+        propertyId: freshApplicant.propertyId,
+        rentAmount,
+        rentFrequency,
+        rentMonthly: getMonthlyEquivalentPence(rentAmount, rentFrequency),
+        rentDueDay: startDate.getUTCDate(),
+        isActive: true,
+        startDate,
+        tenants: {
+          create: [{ tenantId: tenant.id, role: "Lead" }],
+        },
+      },
+    });
+
+    await prisma.$transaction([
+      prisma.applicant.updateMany({
+        where: {
+          id: freshApplicant.id,
+          userId: sessionUser.id,
+        },
+        data: {
+          status: "RESERVED",
+        },
+      }),
+      prisma.applicantDocument.updateMany({
+        where: {
+          applicantId: freshApplicant.id,
+        },
+        data: {
+          tenantId: tenant.id,
+          tenancyId: tenancy.id,
+        },
+      }),
+    ]);
+
+    redirect(`/tenancies/${tenancy.id}`);
+  }
+
   const rentMonthly = await getRent(
     sessionUser.id,
     applicant.propertyId,
@@ -435,6 +618,11 @@ export default async function ApplicantDetailPage({
     hasPets: applicant.hasPets,
   });
   const drafts = allApplicantMessageDrafts(applicant);
+  const defaultTenancyRentPence = applicant.property?.advertisedRentMonthly ?? rentMonthly ?? 0;
+  const defaultTenancyRentPounds = defaultTenancyRentPence
+    ? (defaultTenancyRentPence / 100).toFixed(2)
+    : "";
+  const todayInput = toDateInputValue(new Date());
 
   return (
     <div className="space-y-6">
@@ -540,6 +728,11 @@ export default async function ApplicantDetailPage({
       {guardMessage ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           {guardMessage}
+        </div>
+      ) : null}
+      {convertError ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {convertError}
         </div>
       ) : null}
 
@@ -657,6 +850,82 @@ export default async function ApplicantDetailPage({
           guarantorAvailable={applicant.guarantorAvailable}
           guarantorOutcome={applicant.guarantorOutcome}
         />
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Convert to tenant</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create the tenant and active tenancy from this applicant without re-entering contact details.
+            </p>
+          </div>
+          <div className="text-sm text-slate-500">
+            {applicant.property?.name ?? "No property linked"}
+          </div>
+        </div>
+
+        {!applicant.propertyId ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Link this applicant to a property before converting them.
+          </div>
+        ) : (
+          <form action={convertApplicantToTenancy} className="mt-4 grid gap-4 md:grid-cols-4">
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium text-slate-800">Start date</span>
+              <input
+                name="startDate"
+                type="date"
+                defaultValue={todayInput}
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                required
+              />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium text-slate-800">Rent amount (£)</span>
+              <input
+                name="rentAmount"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={defaultTenancyRentPounds}
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                required
+              />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium text-slate-800">Rent frequency</span>
+              <select
+                name="rentFrequency"
+                defaultValue="MONTHLY"
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="MONTHLY">Monthly</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium text-slate-800">Right to Rent expiry</span>
+              <input
+                name="rightToRentExpiresOn"
+                type="date"
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+
+            <div className="md:col-span-4">
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+              >
+                Create tenant and tenancy
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">

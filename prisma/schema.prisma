@@ -109,6 +109,7 @@ model Tenant {
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   contactLogs ContactLog[]
   tenancies   TenancyTenant[]
+  documents   ApplicantDocument[]
 
   @@index([userId])
   @@index([deletedAt])
@@ -139,6 +140,7 @@ model Tenancy {
   payments    Payment[]
   property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   tenants     TenancyTenant[]
+  documents   ApplicantDocument[]
 
   @@index([propertyId])
   @@index([isActive])
@@ -413,11 +415,17 @@ model ApplicantDocument {
   absolutePath    String?
   contentType     String?
   sizeBytes       Int?
+  tenantId        String?
+  tenancyId       String?
   createdAt       DateTime @default(now())
 
   applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenancy   Tenancy?   @relation(fields: [tenancyId], references: [id], onDelete: SetNull)
 
   @@index([applicantId])
+  @@index([tenantId])
+  @@index([tenancyId])
   @@index([storageProvider])
   @@index([createdAt])
 }
