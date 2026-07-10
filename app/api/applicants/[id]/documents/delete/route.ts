@@ -1,9 +1,7 @@
-import path from "node:path";
-import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth";
-import { resolveApplicantStoredDocPath } from "@/lib/applicant-documents";
+import { deleteApplicantDocument } from "@/lib/applicant-documents";
 import { syncApplicantReferencingFromDocs } from "@/lib/applicant-referencing-sync";
 
 export async function POST(
@@ -32,22 +30,21 @@ export async function POST(
   }
 
   const formData = await request.formData();
+  const documentId = String(formData.get("documentId") ?? "").trim();
   const storedName = String(formData.get("storedName") ?? "").trim();
 
-  if (!storedName) {
+  if (!documentId && !storedName) {
     return NextResponse.redirect(
       new URL(`/applicants/${applicant.id}?deleteDoc=missing`, request.url),
       303,
     );
   }
 
-  const safeName = path.basename(storedName);
-  const absolutePath = await resolveApplicantStoredDocPath(applicant.id, safeName);
-
-  if (absolutePath) {
-    await fs.unlink(absolutePath).catch(() => null);
-  }
-
+  await deleteApplicantDocument({
+    applicantId: applicant.id,
+    documentId,
+    storedName,
+  });
   await syncApplicantReferencingFromDocs(applicant.id);
 
   return NextResponse.redirect(

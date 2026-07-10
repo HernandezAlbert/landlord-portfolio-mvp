@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import Link from "next/link";
 import { requireSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -25,6 +23,7 @@ import {
 import { buildApplicantDuplicateKeys } from "@/lib/applicant-import-utils";
 import { upsertImportedApplicant } from "@/lib/applicant-import-upsert";
 import { poundsToPenceOrNull } from "@/lib/money";
+import { getUploadedApplicantDocs } from "@/lib/applicant-documents";
 
 function Pill({
   children,
@@ -43,19 +42,7 @@ function Pill({
 }
 
 async function getApplicantDocumentCount(applicantId: string) {
-  const folder = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "applicants",
-    applicantId,
-  );
-  try {
-    const files = await fs.readdir(folder);
-    return files.length;
-  } catch {
-    return 0;
-  }
+  return (await getUploadedApplicantDocs(applicantId)).length;
 }
 
 export default async function ApplicantsPage({

@@ -522,6 +522,11 @@ export default async function ApplicantDetailPage({
           Please choose a file before uploading.
         </div>
       ) : null}
+      {uploadStatus === "error" ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Reference material could not be uploaded. Check the configured document storage path is writable and try again.
+        </div>
+      ) : null}
       {deleteDocStatus === "ok" ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           Uploaded file deleted.
@@ -827,6 +832,7 @@ export default async function ApplicantDetailPage({
                   <td className="p-2">{fmtDate(doc.createdAt)}</td>
                   <td className="p-2">
                     <form action={`/api/applicants/${applicant.id}/documents/delete`} method="post">
+                      {doc.id ? <input type="hidden" name="documentId" value={doc.id} /> : null}
                       <input type="hidden" name="storedName" value={doc.storedName} />
                       <button type="submit" className="text-red-600 hover:underline">
                         Delete

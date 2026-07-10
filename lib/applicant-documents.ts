@@ -2,13 +2,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ReferencingCheck } from "@prisma/client";
 import { buildFileAccessUrl, getDocumentStoragePath } from "@/lib/document-storage";
+import { prisma } from "@/lib/prisma";
+import { deleteR2Object, isR2DocumentStorageEnabled, putR2Object } from "@/lib/r2-storage";
 
 export type UploadedApplicantDoc = {
+  id: string | null;
   storedName: string;
   originalName: string;
   docType: string;
   filePath: string;
-  absolutePath: string;
+  absolutePath: string | null;
+  storageProvider: string;
+  storageKey: string | null;
   createdAt: Date | null;
 };
 
@@ -30,6 +35,10 @@ export function sanitizeFileName(value: string) {
 
 export function documentTypeLabel(type: string) {
   return type.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function applicantDocumentAccessUrl(applicantId: string, documentId: string) {
+  return `/api/applicants/${applicantId}/documents/${documentId}`;
 }
 
 function applicantDocStorageKeyForType(type: string) {
@@ -66,6 +75,30 @@ export async function getUploadedApplicantDocs(applicantId: string): Promise<Upl
   const folders = await applicantSearchFolders(applicantId);
   const docs: UploadedApplicantDoc[] = [];
 
+  const storedDocs = await prisma.applicantDocument.findMany({
+    where: { applicantId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  for (const doc of storedDocs) {
+    docs.push({
+      id: doc.id,
+      storedName: doc.storedName,
+      originalName: doc.originalName,
+      docType: doc.docType,
+      filePath: applicantDocumentAccessUrl(applicantId, doc.id),
+      absolutePath: doc.absolutePath,
+      storageProvider: doc.storageProvider,
+      storageKey: doc.storageKey,
+      createdAt: doc.createdAt,
+    });
+  }
+  const storedLocalPaths = new Set(
+    storedDocs
+      .map((doc) => doc.absolutePath)
+      .filter((value): value is string => Boolean(value)),
+  );
+
   for (const folder of folders) {
     try {
       const entries = await fs.readdir(folder);
@@ -73,15 +106,19 @@ export async function getUploadedApplicantDocs(applicantId: string): Promise<Upl
         const absolutePath = path.join(folder, name);
         const stat = await fs.stat(absolutePath);
         if (!stat.isFile()) continue;
+        if (storedLocalPaths.has(absolutePath)) continue;
         const parts = name.split("__");
         const docType = parts.length > 1 ? parts[1] : "OTHER";
         const originalName = parts.length > 2 ? parts.slice(2).join("__") : name;
         docs.push({
+          id: null,
           storedName: name,
           originalName,
           docType,
           filePath: buildFileAccessUrl(absolutePath),
           absolutePath,
+          storageProvider: "local",
+          storageKey: null,
           createdAt: stat.birthtime ?? stat.mtime ?? null,
         });
       }
@@ -92,13 +129,97 @@ export async function getUploadedApplicantDocs(applicantId: string): Promise<Upl
 
   const deduped = new Map<string, UploadedApplicantDoc>();
   for (const doc of docs) {
-    const existing = deduped.get(doc.absolutePath);
+    const key = doc.id ? `id:${doc.id}` : `path:${doc.absolutePath}`;
+    const existing = deduped.get(key);
     if (!existing || (doc.createdAt?.getTime() ?? 0) > (existing.createdAt?.getTime() ?? 0)) {
-      deduped.set(doc.absolutePath, doc);
+      deduped.set(key, doc);
     }
   }
 
   return Array.from(deduped.values()).sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+}
+
+export async function saveApplicantDocument(args: {
+  applicantId: string;
+  docType: string;
+  file: File;
+}) {
+  const storedName = `${Date.now()}__${args.docType}__${sanitizeFileName(args.file.name)}`;
+  const buffer = Buffer.from(await args.file.arrayBuffer());
+  const contentType = args.file.type || "application/octet-stream";
+
+  if (isR2DocumentStorageEnabled()) {
+    const storageKey = `applicants/${args.applicantId}/${storedName}`;
+    await putR2Object({
+      key: storageKey,
+      body: buffer,
+      contentType,
+    });
+
+    return prisma.applicantDocument.create({
+      data: {
+        applicantId: args.applicantId,
+        docType: args.docType,
+        originalName: args.file.name || storedName,
+        storedName,
+        storageProvider: "r2",
+        storageKey,
+        contentType,
+        sizeBytes: args.file.size,
+      },
+    });
+  }
+
+  const folder = await applicantUploadFolder(args.applicantId, args.docType);
+  await fs.mkdir(folder, { recursive: true });
+  const diskPath = path.join(folder, storedName);
+  await fs.writeFile(diskPath, buffer);
+
+  return prisma.applicantDocument.create({
+    data: {
+      applicantId: args.applicantId,
+      docType: args.docType,
+      originalName: args.file.name || storedName,
+      storedName,
+      storageProvider: "local",
+      absolutePath: diskPath,
+      contentType,
+      sizeBytes: args.file.size,
+    },
+  });
+}
+
+export async function deleteApplicantDocument(args: {
+  applicantId: string;
+  documentId?: string | null;
+  storedName?: string | null;
+}) {
+  if (args.documentId) {
+    const doc = await prisma.applicantDocument.findFirst({
+      where: {
+        id: args.documentId,
+        applicantId: args.applicantId,
+      },
+    });
+
+    if (!doc) return;
+
+    if (doc.storageProvider === "r2" && doc.storageKey) {
+      await deleteR2Object(doc.storageKey).catch(() => null);
+    } else if (doc.absolutePath) {
+      await fs.unlink(doc.absolutePath).catch(() => null);
+    }
+
+    await prisma.applicantDocument.delete({ where: { id: doc.id } });
+    return;
+  }
+
+  if (!args.storedName) return;
+  const safeName = path.basename(args.storedName);
+  const absolutePath = await resolveApplicantStoredDocPath(args.applicantId, safeName);
+  if (absolutePath) {
+    await fs.unlink(absolutePath).catch(() => null);
+  }
 }
 
 export async function resolveApplicantStoredDocPath(applicantId: string, storedName: string) {

@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, isAdminEmail } from "@/lib/auth";
+import { getDocumentStorageSettings } from "@/lib/document-storage";
 import {
   deleteUserAdminAction,
   ensureMissingUserSettingsAdminAction,
   recalculateAllApplicantsAdminAction,
   recalculateMyApplicantsAction,
+  saveDocumentStorageSettingsAdminAction,
   saveUserSettingsAction,
 } from "./actions";
 
@@ -93,6 +95,7 @@ export default async function SettingsPage({
         },
       })
     : [];
+  const documentStorageSettings = isAdmin ? await getDocumentStorageSettings() : [];
 
   const totalUsers = adminUsers.length;
   const usersMissingSettings = adminUsers.filter((user) => !user.settings).length;
@@ -109,6 +112,12 @@ export default async function SettingsPage({
       {saved === "profile" ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           Your settings were saved.
+        </div>
+      ) : null}
+
+      {saved === "document-storage" ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Document storage paths were saved.
         </div>
       ) : null}
 
@@ -240,6 +249,47 @@ export default async function SettingsPage({
           </div>
         </form>
       </section>
+
+      {isAdmin ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">Document storage</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Set server-side folders for uploaded documents. Leave a field blank to use its default path.
+          </p>
+
+          <form action={saveDocumentStorageSettingsAdminAction} className="mt-6 space-y-4">
+            {documentStorageSettings.map((setting) => (
+              <div key={setting.key}>
+                <label
+                  htmlFor={setting.key}
+                  className="mb-1 block text-sm font-medium text-slate-700"
+                >
+                  {setting.label}
+                </label>
+                <input
+                  id={setting.key}
+                  name={setting.key}
+                  type="text"
+                  defaultValue={setting.value}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 outline-none transition focus:border-slate-500"
+                />
+                <div className="mt-1 text-xs text-slate-500">
+                  Default: <span className="font-mono">{setting.defaultValue}</span>
+                </div>
+              </div>
+            ))}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Save document storage
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">

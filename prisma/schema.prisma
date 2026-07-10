@@ -392,6 +392,7 @@ model Applicant {
   referencing  ReferencingCheck?
   guarantors   Guarantor[]
   holdingDeposit HoldingDeposit?
+  documents    ApplicantDocument[]
 
   @@index([userId])
   @@index([propertyId])
@@ -399,6 +400,26 @@ model Applicant {
   @@index([deletedAt])
   @@index([screeningStatus])
   @@unique([userId, importExternalKey])
+}
+
+model ApplicantDocument {
+  id              String   @id @default(cuid())
+  applicantId     String
+  docType         String
+  originalName    String
+  storedName      String
+  storageProvider String   @default("local")
+  storageKey      String?
+  absolutePath    String?
+  contentType     String?
+  sizeBytes       Int?
+  createdAt       DateTime @default(now())
+
+  applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@index([applicantId])
+  @@index([storageProvider])
+  @@index([createdAt])
 }
 
 model ReferencingCheck {

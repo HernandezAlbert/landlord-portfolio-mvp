@@ -11,6 +11,11 @@ import {
   recalculateAllApplicants,
   recalculateAllApplicantsForUser,
 } from "@/lib/applicant-recalculation";
+import {
+  DOCUMENT_STORAGE_KEYS,
+  saveDocumentStorageSettings,
+  type DocumentStorageKey,
+} from "@/lib/document-storage";
 
 function toNullableTrimmedString(value: FormDataEntryValue | null) {
   const str = String(value ?? "").trim();
@@ -63,6 +68,18 @@ export async function recalculateAllApplicantsAdminAction() {
       adminUser.email
     )}`
   );
+}
+
+export async function saveDocumentStorageSettingsAdminAction(formData: FormData) {
+  await requireAdminSessionUser();
+
+  const values: Partial<Record<DocumentStorageKey, string>> = {};
+  for (const key of DOCUMENT_STORAGE_KEYS) {
+    values[key] = String(formData.get(key) ?? "").trim();
+  }
+
+  await saveDocumentStorageSettings(values);
+  redirect("/settings?saved=document-storage");
 }
 
 export async function ensureMissingUserSettingsAdminAction() {

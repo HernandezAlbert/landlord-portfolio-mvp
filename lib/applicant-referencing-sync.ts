@@ -66,14 +66,14 @@ export async function syncApplicantReferencingFromDocs(applicantId: string) {
   });
 
   const nextData = {
-    idProvided: docFlags.idProvided ?? false,
-    rightToRentChecked: docFlags.rightToRentChecked ?? false,
-    payslipsProvided: docFlags.payslipsProvided ?? false,
-    bankStatementsProvided: docFlags.bankStatementsProvided ?? false,
-    employmentReference: docFlags.employmentReference ?? false,
-    landlordReference: docFlags.landlordReference ?? false,
-    guarantorProvided: docFlags.guarantorProvided ?? false,
-    petInsuranceProvided: docFlags.petInsuranceProvided ?? false,
+    idProvided: docFlags.idProvided ?? applicant.referencing?.idProvided ?? false,
+    rightToRentChecked: docFlags.rightToRentChecked ?? applicant.referencing?.rightToRentChecked ?? false,
+    payslipsProvided: docFlags.payslipsProvided ?? applicant.referencing?.payslipsProvided ?? false,
+    bankStatementsProvided: docFlags.bankStatementsProvided ?? applicant.referencing?.bankStatementsProvided ?? false,
+    employmentReference: docFlags.employmentReference ?? applicant.referencing?.employmentReference ?? false,
+    landlordReference: docFlags.landlordReference ?? applicant.referencing?.landlordReference ?? false,
+    guarantorProvided: docFlags.guarantorProvided ?? applicant.referencing?.guarantorProvided ?? false,
+    petInsuranceProvided: docFlags.petInsuranceProvided ?? applicant.referencing?.petInsuranceProvided ?? false,
     incomeVerified: applicant.referencing?.incomeVerified ?? false,
     creditCheckPassed: applicant.referencing?.creditCheckPassed ?? null,
     guarantorRequired: applicant.referencing?.guarantorRequired ?? false,
